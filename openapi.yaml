@@ -1,0 +1,39 @@
+openapi: 3.0.0
+info:
+  title: AgentZero API
+  version: 1.0.0
+  description: |
+    Local-first, privacy-preserving agent API for mobile/desktop clients.
+    All endpoints are LAN/internet accessible with TLS. No cloud dependencies.
+servers:
+  - url: https://your-server:8443
+paths:
+  /chat:
+    post:
+      summary: Send a chat message to the agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                session_id:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Agent response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                  audit_id:
+                    type: string
+                    nullable: true
+  # Extend with /voice, /tasks, /files, etc.
