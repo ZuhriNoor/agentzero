@@ -152,10 +152,10 @@ def classify_intent(user_input: str) -> str:
     speech_act = classify_speech_act(user_input)
     intent = classify_intent_llm(user_input, speech_act)
 
-    if intent in ALL_INTENTS:
+    if intent in ALL_INTENTS and intent != "unknown":
         return intent
 
-    return "unknown"
+    return "chat"
 
 
 # ======================

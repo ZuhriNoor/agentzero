@@ -58,6 +58,13 @@ def policy_enforcer(state: AgentState) -> AgentState:
             action_type = action.get("type")
             if action_type and action_type in POLICY:
                 state.permissions[action_type] = POLICY[action_type]["allowed"]
+    
+    # If intent is chat, pre-authorize safe tools so the planner can use them freely
+    if intent == "chat":
+        SAFE_TOOLS = ["add_task", "add_event", "list_events", "list_habits", "add_habit", "track_habit", "query_note", "plan_day", "plan_week"]
+        for tool in SAFE_TOOLS:
+            if tool in POLICY and POLICY[tool]["allowed"]:
+                state.permissions[tool] = True
     state.step = "policy_enforcer"
     log_node('policy_enforcer:exit', state)
     return state

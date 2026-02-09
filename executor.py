@@ -22,7 +22,7 @@ def chat_with_llm(message: str) -> str:
         "stream": False
     }
     try:
-        response = requests.post(OLLAMA_API_URL, json=payload, timeout=20)
+        response = requests.post(OLLAMA_API_URL, json=payload, timeout=120)
         response.raise_for_status()
         data = response.json()
         return data.get("response", "[No response]")
@@ -47,7 +47,10 @@ def executor(state: AgentState) -> AgentState:
         params = action.get("params", {})
         # Handle chat intent
         if action_type == "chat":
-            user_message = params.get("message", state.user_input)
+            if isinstance(params, str):
+                user_message = params
+            else:
+                user_message = params.get("message", state.user_input)
             chat_response = chat_with_llm(user_message)
             results.append({"chat": chat_response})
             continue
