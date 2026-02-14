@@ -27,21 +27,35 @@ def response_composer(state: AgentState) -> AgentState:
             elif 'tool' in result and result['tool'] == 'list_events' and isinstance(result.get('result'), list):
                 events = result['result']
                 if not events:
-                    responses.append("You have no events for that date.")
+                    responses.append("You have no events for that period.")
                 else:
-                    lines = [f"You have {len(events)} event{'s' if len(events) > 1 else ''}:"]
-                    for e in events:
-                        name = e.get('name', 'Untitled')
-                        begin = e.get('begin', '')
-                        # Try to format time nicely
-                        try:
-                            from dateutil.parser import parse as parse_date
-                            dt = parse_date(begin)
-                            time_str = dt.strftime('%Y-%m-%d %H:%M') if dt.hour or dt.minute else dt.strftime('%Y-%m-%d')
-                        except Exception:
-                            time_str = begin
-                        lines.append(f"- {name} at {time_str}")
-                    responses.append("\n".join(lines))
+                    # Use LLM to format the response naturally
+                    import requests
+                    from ollama_config import OLLAMA_MODEL, OLLAMA_API_URL
+                    
+                    event_list_str = "\n".join([f"- {e['name']} at {e['begin']}" for e in events])
+                    prompt = (
+                        "You are a helpful assistant. The user asked about their calendar events.\n"
+                        f"User Query: {state.user_input}\n"
+                        f"Events Found:\n{event_list_str}\n\n"
+                        "Please provide a natural language summary of these events. "
+                        "Do not make up any events. Be concise and friendly."
+                    )
+                    
+                    payload = {
+                        "model": OLLAMA_MODEL,
+                        "prompt": prompt,
+                        "stream": False
+                    }
+                    try:
+                        resp = requests.post(OLLAMA_API_URL, json=payload, timeout=30)
+                        resp.raise_for_status()
+                        natural_response = resp.json().get("response", "").strip()
+                        responses.append(natural_response)
+                    except Exception as e:
+                        # Fallback to simple listing if LLM fails
+                        responses.append(f"You have {len(events)} events:\n" + event_list_str)
+
             elif 'result' in result:
                 responses.append(str(result['result']))
         state.response = "\n".join(responses)
