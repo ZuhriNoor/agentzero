@@ -27,11 +27,13 @@ PLANNER_SYSTEM_PROMPT = (
     "Each action should have a 'type' and 'params'. "
     "If the intent is 'chat', create a single action of type 'chat' with the user's message as a parameter. "
     "If the intent is 'add_task' or 'add_event', extract the event name, date, and time directly from the user's message and generate only an 'add_event' or 'add_task' action with those parameters. "
+    "If the intent is 'list_events', extract 'start' and 'end' dates if a range is specified (e.g., 'this week'). If looking for specific day, Provide 'start'. "
     "Do not generate a 'parse_message' action. "
     "Respond ONLY with a JSON object: {{\"plan\": [ ... ]}}"
-    "\nFor scheduling, use the current date: {current_date}"
+    "\nFor scheduling, use the current date and time: {current_date}"
     "\nExamples:"
     "\nUser: I have a meeting tomorrow at 10:30 AM -> {{\"plan\": [{{\"type\": \"add_event\", \"params\": {{\"name\": \"meeting\", \"date\": \"2026-01-28\", \"time\": \"10:30\"}}}}]}}"
+    "\nUser: What do I have this week? -> {{\"plan\": [{{\"type\": \"list_events\", \"params\": {{\"start\": \"2026-01-27\", \"end\": \"2026-02-03\"}}}}]}}"
     "\nUser: add buy milk to my todos -> {{\"plan\": [{{\"type\": \"add_task\", \"params\": {{\"task\": \"buy milk\"}}}}]}}"
 )
 
@@ -54,8 +56,9 @@ def planner(state: AgentState) -> AgentState:
     ):
         context = dict(context)  # copy
         context['habits'] = load_habits()
-    # Add current date for LLM extraction
-    current_date = datetime.now().strftime('%Y-%m-%d')
+    # Add current date/time for LLM extraction
+    now = datetime.now()
+    current_date = now.strftime('%A, %Y-%m-%d %H:%M')
     prompt = PLANNER_SYSTEM_PROMPT.format(current_date=current_date)
     prompt = f"{prompt}\nIntent: {state.intent}\nContext: {json.dumps(context)}\nUser: {state.user_input}"
     payload = {
@@ -64,51 +67,33 @@ def planner(state: AgentState) -> AgentState:
         "stream": False
     }
     try:
-        if state.intent == "list_events":
-            # Simple deterministic plan for listing events
-            # Optionally parse date from user_input for filtering
-            import re
-            date_match = re.search(r"tomorrow|today|\d{1,2} \w+ \d{4}|\d{4}-\d{2}-\d{2}", state.user_input.lower())
-            params = {}
-            if date_match:
-                # For 'tomorrow', calculate date
-                if "tomorrow" in date_match.group():
-                    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-                    params["start"] = tomorrow
-                elif "today" in date_match.group():
-                    today = datetime.now().strftime('%Y-%m-%d')
-                    params["start"] = today
-                else:
-                    params["start"] = date_match.group()
-            plan = [{"type": "list_events", "params": params}]
-            state.plan = plan
-        else:
-            response = requests.post(OLLAMA_API_URL, json=payload, timeout=120)
-            response.raise_for_status()
-            data = response.json()
-            output = data.get("response", "{}")
-            # Extract only the first valid JSON object from the output
-            import re
-            match = re.search(r'\{.*\}', output, re.DOTALL)
-            json_str = match.group(0) if match else '{}'
-            plan_data = json.loads(json_str)
-            plan = plan_data.get("plan", [])
-            # Post-process: for add_event, combine date and time into begin (ISO)
-            for action in plan:
-                if action.get("type") == "add_event":
-                    params = action.get("params", {})
-                    date = params.pop("date", None)
-                    time = params.pop("time", None)
-                    if date and time:
-                        try:
-                            dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
-                            params["begin"] = dt.isoformat()
-                        except Exception:
-                            params["begin"] = f"{date}T{time}"
-                    elif date:
-                        params["begin"] = date
-                    action["params"] = params
-            state.plan = plan
+        response = requests.post(OLLAMA_API_URL, json=payload, timeout=120)
+
+        response.raise_for_status()
+        data = response.json()
+        output = data.get("response", "{}")
+        # Extract only the first valid JSON object from the output
+        import re
+        match = re.search(r'\{.*\}', output, re.DOTALL)
+        json_str = match.group(0) if match else '{}'
+        plan_data = json.loads(json_str)
+        plan = plan_data.get("plan", [])
+        # Post-process: for add_event, combine date and time into begin (ISO)
+        for action in plan:
+            if action.get("type") == "add_event":
+                params = action.get("params", {})
+                date = params.pop("date", None)
+                time = params.pop("time", None)
+                if date and time:
+                    try:
+                        dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+                        params["begin"] = dt.isoformat()
+                    except Exception:
+                        params["begin"] = f"{date}T{time}"
+                elif date:
+                    params["begin"] = date
+                action["params"] = params
+        state.plan = plan
     except Exception as e:
         state.plan = []
         state.error = f"Planner error: {str(e)}"
