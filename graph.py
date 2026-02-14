@@ -30,7 +30,22 @@ def build_agentzero_graph():
     # Transitions (explicit, deterministic)
     graph.add_edge("intent_router", "policy_enforcer")
     graph.add_edge("policy_enforcer", "context_builder")
-    graph.add_edge("context_builder", "planner")
+    graph.add_edge("policy_enforcer", "context_builder")
+    
+    def route_context_builder(state: AgentState):
+        if state.intent == "chat":
+            return "executor"
+        return "planner"
+
+    graph.add_conditional_edges(
+        "context_builder",
+        route_context_builder,
+        {
+            "executor": "executor",
+            "planner": "planner"
+        }
+    )
+
     graph.add_edge("planner", "executor")
     graph.add_edge("executor", "memory_writer")
     graph.add_edge("memory_writer", "response_composer")

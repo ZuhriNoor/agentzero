@@ -74,14 +74,11 @@ class LocalCalendarTool:
                 end_arrow = arrow.get(parse_date(end))
             except Exception:
                 end_arrow = None
-        # If only start is provided, filter events to that day only
-        if start_arrow and not end_arrow:
-            events = [e for e in events if e.begin.date() == start_arrow.date()]
-        else:
-            if start_arrow:
-                events = [e for e in events if e.begin >= start_arrow]
-            if end_arrow:
-                events = [e for e in events if e.begin <= end_arrow]
+        # Filter by start/end range
+        if start_arrow:
+            events = [e for e in events if e.begin >= start_arrow]
+        if end_arrow:
+            events = [e for e in events if e.begin <= end_arrow]
         if tag:
             events = [e for e in events if tag in (e.categories or set())]
         return [{

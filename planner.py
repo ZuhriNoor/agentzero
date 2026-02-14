@@ -27,7 +27,7 @@ PLANNER_SYSTEM_PROMPT = (
     "Each action should have a 'type' and 'params'. "
     "If the intent is 'chat', create a single action of type 'chat' with the user's message as a parameter. "
     "If the intent is 'add_task' or 'add_event', extract the event name, date, and time directly from the user's message and generate only an 'add_event' or 'add_task' action with those parameters. "
-    "If the intent is 'list_events', extract 'start' and 'end' dates if a range is specified (e.g., 'this week'). If looking for specific day, Provide 'start'. "
+    "If the intent is 'list_events', extract 'start' and 'end' dates if a range is specified. 'start' defaults to filter events FROM that time onwards. To list events for a specific day, PROVIDE BOTH 'start' (00:00) and 'end' (23:59) for that day. "
     "Do not generate a 'parse_message' action. "
     "Respond ONLY with a JSON object: {{\"plan\": [ ... ]}}"
     "\nFor scheduling, use the current date and time: {current_date}"

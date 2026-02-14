@@ -38,6 +38,13 @@ def executor(state: AgentState) -> AgentState:
         log_node('executor:error', state)
         return state
     results = []
+    results = []
+    
+    # Check if we skipped planner (chat intent with no plan)
+    if not state.plan and state.intent == "chat":
+        # Generate a virtual plan for chat
+        state.plan = [{"type": "chat", "params": state.user_input}]
+        
     if not state.plan:
         state.error = "No plan to execute."
         state.step = "error_handler"

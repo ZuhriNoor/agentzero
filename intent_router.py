@@ -57,6 +57,13 @@ INTENT_BUCKETS = {
     },
     "chat": {
         "chat",
+        "add_event",
+        "add_task",
+        "add_habit",
+        "track_habit",
+        "plan_day",
+        "plan_week",
+        "unknown",
     },
 }
 
