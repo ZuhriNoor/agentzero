@@ -44,9 +44,28 @@ class LocalCalendarTool:
         cal = self._load_calendar()
         event = Event()
         event.name = name
-        event.begin = begin
+        
+        # Parse 'begin' as Local Time if it is a naive string
+        # We assume the user input (from planner) is in the system's local time
+        import arrow
+        from dateutil import tz
+        
+        try:
+            # arrow.get(..., tzinfo=...) works well
+            # If begin is naive string "2026-02-15 10:00", treat as Local
+            begin_arrow = arrow.get(begin, tzinfo=tz.tzlocal())
+            event.begin = begin_arrow.datetime
+        except:
+            # Fallback
+            event.begin = begin
+            
         if end:
-            event.end = end
+            try:
+                end_arrow = arrow.get(end, tzinfo=tz.tzlocal())
+                event.end = end_arrow.datetime
+            except:
+                event.end = end
+                
         if description:
             event.description = description
         if tags:
@@ -81,10 +100,18 @@ class LocalCalendarTool:
             events = [e for e in events if e.begin <= end_arrow]
         if tag:
             events = [e for e in events if tag in (e.categories or set())]
+            
+        # Helper to convert to local system time for display
+        from dateutil import tz
+        def to_local(arrow_time):
+            # ics uses arrow or datetime. Convert to datetime then astimezone
+            dt = arrow_time.datetime if hasattr(arrow_time, 'datetime') else arrow_time
+            return dt.astimezone(tz.tzlocal()).isoformat()
+
         return [{
             'name': e.name,
-            'begin': str(e.begin),
-            'end': str(e.end) if e.end else None,
+            'begin': to_local(e.begin),
+            'end': to_local(e.end) if e.end else None,
             'description': e.description,
             'tags': list(e.categories) if e.categories else [],
         } for e in events]

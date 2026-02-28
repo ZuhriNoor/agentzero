@@ -14,18 +14,26 @@ TOOLS = load_tools()
 SKILLS = load_skills()
 
 
-def chat_with_llm(message: str) -> str:
-    prompt = f"You are a helpful, privacy-preserving AI assistant.\nUser: {message}"
+def chat_with_llm(message: str, history: list = None) -> str:
+    messages = [{"role": "system", "content": "Your name is Ein. You are a helpful, productivity AI agent."}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": message})
+    
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": prompt,
+        "messages": messages,
         "stream": False
     }
+    
+    # We need to change the generate endpoint to the chat endpoint
+    chat_url = OLLAMA_API_URL.replace("/api/generate", "/api/chat")
+    
     try:
-        response = requests.post(OLLAMA_API_URL, json=payload, timeout=120)
+        response = requests.post(chat_url, json=payload, timeout=120)
         response.raise_for_status()
         data = response.json()
-        return data.get("response", "[No response]")
+        return data.get("message", {}).get("content", "[No response]")
     except Exception as e:
         return f"[Chat error: {str(e)}]"
 
@@ -58,7 +66,7 @@ def executor(state: AgentState) -> AgentState:
                 user_message = params
             else:
                 user_message = params.get("message", state.user_input)
-            chat_response = chat_with_llm(user_message)
+            chat_response = chat_with_llm(user_message, state.chat_history)
             results.append({"chat": chat_response})
             continue
         # Check permissions

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class AgentState(BaseModel):
     user_input: str
     intent: Optional[str] = None
+    chat_history: Optional[List[Dict[str, str]]] = Field(default_factory=list)
     plan: Optional[List[Dict[str, Any]]] = None
     context: Optional[Dict[str, Any]] = None
     memory: Dict[str, Any] = Field(default_factory=dict)  # STM, LTM, structured
