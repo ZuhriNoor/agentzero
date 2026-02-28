@@ -14,8 +14,12 @@ TOOLS = load_tools()
 SKILLS = load_skills()
 
 
-def chat_with_llm(message: str, history: list = None) -> str:
-    messages = [{"role": "system", "content": "Your name is Ein. You are a helpful, productivity AI agent."}]
+def chat_with_llm(message: str, history: list = None, rag_context: list = None) -> str:
+    system_prompt = "Your name is Ein. You are a helpful, productivity AI agent."
+    if rag_context:
+        system_prompt += "\n\nRelevant Context about the User:\n" + "\n".join([f"- {fact}" for fact in rag_context])
+        
+    messages = [{"role": "system", "content": system_prompt}]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": message})
@@ -66,7 +70,8 @@ def executor(state: AgentState) -> AgentState:
                 user_message = params
             else:
                 user_message = params.get("message", state.user_input)
-            chat_response = chat_with_llm(user_message, state.chat_history)
+            rag_context = state.context.get("rag") if state.context else None
+            chat_response = chat_with_llm(user_message, state.chat_history, rag_context)
             results.append({"chat": chat_response})
             continue
         # Check permissions

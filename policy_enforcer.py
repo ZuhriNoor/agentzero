@@ -20,6 +20,7 @@ POLICY = {
     "delete_habit": {"allowed": True, "reason": "Habit deletion allowed"},
     "track_habit": {"allowed": True, "reason": "Habit tracking allowed"},
     "parse_message": {"allowed": True, "reason": "LLM message parsing allowed"},
+    "remember_fact": {"allowed": True, "reason": "Memory storage allowed"},
     # ...extend as needed...
 }
 
@@ -61,7 +62,7 @@ def policy_enforcer(state: AgentState) -> AgentState:
     
     # If intent is chat, pre-authorize safe tools so the planner can use them freely
     if intent == "chat":
-        SAFE_TOOLS = ["add_task", "add_event", "list_events", "list_habits", "add_habit", "track_habit", "query_note", "plan_day", "plan_week"]
+        SAFE_TOOLS = ["add_task", "add_event", "list_events", "list_habits", "add_habit", "track_habit", "query_note", "plan_day", "plan_week", "remember_fact"]
         for tool in SAFE_TOOLS:
             if tool in POLICY and POLICY[tool]["allowed"]:
                 state.permissions[tool] = True

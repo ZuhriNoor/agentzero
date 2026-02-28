@@ -33,9 +33,8 @@ def context_builder(state: AgentState) -> AgentState:
         log_node('context_builder:error', state)
         return state
     # Retrieve relevant context from vector DB (RAG)
-    query_embedding = get_embedding(state.user_input)
     ltm = LongTermMemory(VECTOR_DB_PATH)
-    rag_results = ltm.query(query_embedding, top_k=5) if query_embedding else []
+    rag_results = ltm.query(state.user_input, top_k=3)
 
     # Load structured user data
     structured = StructuredMemory(STRUCTURED_PATH)

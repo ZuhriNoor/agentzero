@@ -23,12 +23,7 @@ def memory_writer(state: AgentState) -> AgentState:
     stm = ShortTermMemory()
     for k, v in state.memory.items():
         stm.set(k, v)
-    # Persist LTM (vector DB) if new knowledge
-    if state.tool_results:
-        ltm = LongTermMemory(VECTOR_DB_PATH)
-        for result in state.tool_results:
-            # Example: store result as embedding (placeholder)
-            ltm.add(embedding=None, metadata=result)
+    # Long-Term Memory (RAG) is now explicitly handled by the remember_fact tool.
     # Persist structured memory (e.g., user profile)
     structured = StructuredMemory(STRUCTURED_PATH)
     data = structured.load()

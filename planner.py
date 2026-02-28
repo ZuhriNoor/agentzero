@@ -28,6 +28,7 @@ PLANNER_SYSTEM_PROMPT = (
     "If the intent is 'chat', create a single action of type 'chat' with the user's message as a parameter. "
     "If the intent is 'add_task' or 'add_event', extract the event name, date, and time directly from the user's message and generate only an 'add_event' or 'add_task' action with those parameters. "
     "If the intent is 'list_events', extract 'start' and 'end' dates if a range is specified. 'start' defaults to filter events FROM that time onwards. To list events for a specific day, PROVIDE BOTH 'start' (00:00) and 'end' (23:59) for that day. "
+    "If the intent is 'remember_fact', extract the core fact to remember from the user's message and generate a 'remember_fact' action with a 'fact' parameter. "
     "Do not generate a 'parse_message' action. "
     "Respond ONLY with a JSON object: {{\"plan\": [ ... ]}}"
     "\nFor scheduling, use the current date and time: {current_date}"
@@ -35,6 +36,7 @@ PLANNER_SYSTEM_PROMPT = (
     "\nUser: I have a meeting tomorrow at 10:30 AM -> {{\"plan\": [{{\"type\": \"add_event\", \"params\": {{\"name\": \"meeting\", \"date\": \"2026-01-28\", \"time\": \"10:30\"}}}}]}}"
     "\nUser: What do I have this week? -> {{\"plan\": [{{\"type\": \"list_events\", \"params\": {{\"start\": \"2026-01-27\", \"end\": \"2026-02-03\"}}}}]}}"
     "\nUser: add buy milk to my todos -> {{\"plan\": [{{\"type\": \"add_task\", \"params\": {{\"task\": \"buy milk\"}}}}]}}"
+    "\nUser: remember that my wife's name is Sarah -> {{\"plan\": [{{\"type\": \"remember_fact\", \"params\": {{\"fact\": \"Wife's name is Sarah\"}}}}]}}"
 )
 
 def load_habits():

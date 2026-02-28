@@ -39,17 +39,33 @@ class ShortTermMemory:
 
 class LongTermMemory:
     def __init__(self, db_path: str):
-        # Placeholder for vector DB (e.g., ChromaDB)
+        import chromadb
         self.db_path = db_path
-        # ...init vector DB...
+        self.client = chromadb.PersistentClient(path=db_path)
+        self.collection = self.client.get_or_create_collection(name="agent_memory")
 
-    def add(self, embedding, metadata):
-        # ...add to vector DB...
-        pass
+    def add(self, text: str, metadata: dict = None):
+        import uuid
+        doc_id = str(uuid.uuid4())
+        self.collection.add(
+            documents=[text],
+            metadatas=[metadata] if metadata else None,
+            ids=[doc_id]
+        )
 
-    def query(self, embedding, top_k=5):
-        # ...query vector DB...
-        return []
+    def query(self, query_text: str, top_k=5) -> List[str]:
+        # Returns top_k documents as a flat list
+        try:
+            results = self.collection.query(
+                query_texts=[query_text],
+                n_results=top_k
+            )
+            if results and results.get("documents") and len(results["documents"]) > 0:
+                return results["documents"][0]
+            return []
+        except Exception as e:
+            print(f"ChromaDB Query Error: {e}")
+            return []
 
 class StructuredMemory:
     def __init__(self, file_path: str):

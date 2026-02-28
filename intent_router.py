@@ -31,6 +31,7 @@ ALL_INTENTS: Set[str] = {
     "add_habit",
     "delete_habit",
     "track_habit",
+    "remember_fact",
     "unknown",
 }
 
@@ -50,6 +51,7 @@ INTENT_BUCKETS = {
         "add_habit",
         "delete_habit",
         "track_habit",
+        "remember_fact",
         "plan_day",
         "plan_week",
         "chat",
@@ -61,6 +63,7 @@ INTENT_BUCKETS = {
         "add_task",
         "add_habit",
         "track_habit",
+        "remember_fact",
         "plan_day",
         "plan_week",
         "unknown",
@@ -82,7 +85,8 @@ def classify_speech_act(text: str) -> str:
 
     COMMAND_PREFIXES = (
         "add", "schedule", "create", "delete",
-        "track", "plan", "remind", "put"
+        "track", "plan", "remind", "put",
+        "remember", "save", "keep", "memorize"
     )
 
     if t.endswith("?"):
