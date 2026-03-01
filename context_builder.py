@@ -6,24 +6,9 @@ Uses Ollama API for embedding if needed.
 
 from agent_state import AgentState
 from memory import LongTermMemory, StructuredMemory
-import requests
-import json
-from ollama_config import OLLAMA_MODEL, OLLAMA_EMBEDDINGS_API_URL
+
 VECTOR_DB_PATH = 'data/vector_db'  # Example path
 STRUCTURED_PATH = 'data/user_profile.json'
-
-def get_embedding(text: str):
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": text
-    }
-    try:
-        response = requests.post(OLLAMA_EMBEDDINGS_API_URL, json=payload, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("embedding")
-    except Exception as e:
-        return None
 
 def context_builder(state: AgentState) -> AgentState:
     from memory import log_node

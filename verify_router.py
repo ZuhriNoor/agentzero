@@ -4,12 +4,7 @@ from unittest.mock import MagicMock, patch
 
 # Mock dependencies
 sys.modules['agent_state'] = MagicMock()
-sys.modules['ollama_config'] = MagicMock()
-sys.modules['memory'] = MagicMock()
-
-# Mock env vars in ollama_config
-sys.modules['ollama_config'].OLLAMA_MODEL = "mock-model"
-sys.modules['ollama_config'].OLLAMA_API_URL = "http://mock-url"
+sys.modules['llm_service'] = MagicMock()
 
 import intent_router
 

@@ -4,10 +4,15 @@
 # Connects to the LangGraph agent system as a backend module.
 
 
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
+from auth import (
+    LoginRequest, TokenResponse, authenticate_user,
+    create_access_token, require_auth, validate_ws_token,
+    hash_password,
+)
 import uvicorn
 import os
 import httpx
@@ -61,6 +66,28 @@ agent_app = build_agentzero_graph().compile()
 scheduler = None
 last_active_user_phone = None  # To track who to message on WhatsApp
 whisper_model = None
+
+# ==========================================
+# AUTHENTICATION
+# ==========================================
+
+@app.post("/auth/login", response_model=TokenResponse)
+async def login(req: LoginRequest):
+    if not authenticate_user(req.username, req.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_access_token(subject=req.username)
+    return TokenResponse(
+        access_token=token,
+        expires_in=24 * 3600  # matches JWT_EXPIRY_HOURS default
+    )
+
+@app.get("/auth/hash-password")
+async def get_password_hash(password: str = Query(...)):
+    """
+    Utility endpoint to generate a bcrypt hash for a password.
+    Use this ONCE to generate ADMIN_PASSWORD_HASH for your .env, then remove or disable.
+    """
+    return {"hash": hash_password(password)}
 
 @app.on_event("startup")
 async def startup_event():
@@ -123,7 +150,7 @@ async def download_whatsapp_media(media_id: str) -> str:
         return filename
 
 @app.post("/voice")
-async def voice_endpoint(file: UploadFile = File(...)):
+async def voice_endpoint(file: UploadFile = File(...), _user: str = Depends(require_auth)):
     """
     Accepts an audio file, transcribes it, and executes the command.
     """
@@ -188,7 +215,13 @@ import traceback
 connected_clients = [] 
 
 @app.websocket("/ws/notifications")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
+    # Validate JWT token for WebSocket connections
+    if not token or not validate_ws_token(token):
+        await websocket.close(code=4001, reason="Unauthorized")
+        print("WebSocket rejected: invalid or missing token.")
+        return
+
     print("Attempting to connect...")
     await websocket.accept()
     # 1. Send a "Welcome" message to turn the App Light GREEN
@@ -270,7 +303,7 @@ class ChatResponse(BaseModel):
     audit_id: str = None
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, _user: str = Depends(require_auth)):
     try:
         agent_response = run_agent_pipeline(req.message, req.session_id or "default")
         return ChatResponse(response=agent_response)

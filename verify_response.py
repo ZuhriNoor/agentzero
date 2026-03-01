@@ -5,9 +5,7 @@ from unittest.mock import MagicMock, patch
 # Mock dependencies
 sys.modules['agent_state'] = MagicMock()
 sys.modules['memory'] = MagicMock()
-sys.modules['ollama_config'] = MagicMock()
-sys.modules['ollama_config'].OLLAMA_MODEL = "mock-model"
-sys.modules['ollama_config'].OLLAMA_API_URL = "http://mock-url"
+sys.modules['llm_service'] = MagicMock()
 
 # Define AgentState
 class AgentState:
@@ -34,11 +32,9 @@ def test_response_composer():
         tool_results=[{"tool": "list_events", "result": events}]
     )
     
-    # Mock requests.post to simulate LLM response
-    with patch('requests.post') as mock_post:
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"response": "You have a meeting with Bob at 10 AM and Lunch at 12:30."}
-        mock_post.return_value = mock_response
+    # Mock generate_completion to simulate LLM response
+    with patch('response_composer.generate_completion', create=True) as mock_generate:
+        mock_generate.return_value = "You have a meeting with Bob at 10 AM and Lunch at 12:30."
         
         # Run functionality
         response_composer.response_composer(state)
@@ -48,9 +44,9 @@ def test_response_composer():
         print(f"Generated Response: {state.response}")
         
         # Check if LLM was called with expected prompt
-        if mock_post.called:
-            args, kwargs = mock_post.call_args
-            prompt = kwargs['json']['prompt']
+        if mock_generate.called:
+            args, kwargs = mock_generate.call_args
+            prompt = kwargs['prompt']
             print("\nPrompt Sent to LLM:")
             print(prompt)
             if "Meeting with Bob" in prompt and "Lunch" in prompt:

@@ -30,8 +30,7 @@ def response_composer(state: AgentState) -> AgentState:
                     responses.append("You have no events for that period.")
                 else:
                     # Use LLM to format the response naturally
-                    import requests
-                    from ollama_config import OLLAMA_MODEL, OLLAMA_API_URL
+                    from llm_service import generate_completion
                     
                     event_list_str = "\n".join([f"- {e['name']} at {e['begin']}" for e in events])
                     prompt = (
@@ -42,15 +41,8 @@ def response_composer(state: AgentState) -> AgentState:
                         "Do not make up any events. Be concise and friendly."
                     )
                     
-                    payload = {
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    }
                     try:
-                        resp = requests.post(OLLAMA_API_URL, json=payload, timeout=30)
-                        resp.raise_for_status()
-                        natural_response = resp.json().get("response", "").strip()
+                        natural_response = generate_completion(prompt=prompt, stream=False, timeout=30)
                         responses.append(natural_response)
                     except Exception as e:
                         # Fallback to simple listing if LLM fails

@@ -11,11 +11,9 @@ from unittest.mock import MagicMock, patch
 mock_memory = MagicMock()
 sys.modules['memory'] = mock_memory
 
-# Mock ollama_config
-mock_ollama_config = MagicMock()
-mock_ollama_config.OLLAMA_MODEL = "mock-model"
-mock_ollama_config.OLLAMA_API_URL = "http://mock-url"
-sys.modules['ollama_config'] = mock_ollama_config
+# Mock llm_service
+mock_llm_service = MagicMock()
+sys.modules['llm_service'] = mock_llm_service
 
 # Mock agent_state
 mock_agent_state = MagicMock()
@@ -43,24 +41,21 @@ def test_planner_prompt():
     # Since we mocked ollama_config, planner imports are already done.
     # But requests is imported in planner.py
     
-    with patch('planner.requests.post') as mock_post:
+    with patch('planner.generate_completion', create=True) as mock_generate:
         # Mock response structure
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"response": '{"plan": []}'}
-        mock_post.return_value = mock_response
+        mock_generate.return_value = '{"plan": []}'
 
         # Test 1: Check Current Date/Time injection in Prompt
         print("\n[Test 1] Verifying Date/Time in Prompt...")
         state = AgentState(user_input="I have a meeting this Sunday", intent="add_event")
         planner.planner(state)
         
-        if not mock_post.called:
-            print("FAILURE: requests.post was not called.")
+        if not mock_generate.called:
+            print("FAILURE: generate_completion was not called.")
             return
 
-        args, kwargs = mock_post.call_args
-        payload = kwargs['json']
-        prompt = payload['prompt']
+        args, kwargs = mock_generate.call_args
+        prompt = kwargs['prompt']
         
         now = datetime.datetime.now()
         expected_day = now.strftime('%A')     # e.g., Friday
@@ -84,13 +79,13 @@ def test_planner_prompt():
         # Test 2: Check list_events intent
         print("\n[Test 2] Verifying list_events uses LLM...")
         # Reset mock
-        mock_post.reset_mock()
+        mock_generate.reset_mock()
         
         state = AgentState(user_input="What do I have this week?", intent="list_events")
         planner.planner(state)
         
-        if mock_post.called:
-             print("SUCCESS: list_events invoked LLM (requests.post called).")
+        if mock_generate.called:
+             print("SUCCESS: list_events invoked LLM (generate_completion called).")
         else:
              print("FAILURE: list_events did NOT invoke LLM (regex shortcut still active?).")
 

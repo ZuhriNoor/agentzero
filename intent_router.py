@@ -7,7 +7,7 @@ Production-grade two-stage intent classification.
 from agent_state import AgentState
 import requests
 from typing import Set
-from ollama_config import OLLAMA_MODEL, OLLAMA_API_URL
+from llm_service import generate_completion
 
 
 # ======================
@@ -125,26 +125,15 @@ def build_prompt(user_input: str, speech_act: str) -> str:
 def classify_intent_llm(user_input: str, speech_act: str) -> str:
     prompt = build_prompt(user_input, speech_act)
 
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "options": {
-            "temperature": 0.0,
-            "top_p": 1.0,
-        }
-    }
-
     try:
-        response = requests.post(
-            OLLAMA_API_URL,
-            json=payload,
+        raw = generate_completion(
+            prompt=prompt,
+            stream=False,
+            options={"temperature": 0.0, "top_p": 1.0},
             timeout=10
         )
-        response.raise_for_status()
-
-        raw = response.json().get("response", "")
-        intent = raw.strip().lower().split()[0]
+        if raw:
+            intent = raw.strip().lower().split()[0]
 
         if intent in INTENT_BUCKETS[speech_act]:
             return intent

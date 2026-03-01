@@ -8,7 +8,7 @@ from agent_state import AgentState
 from tools import load_tools
 from skills import load_skills
 import requests
-from ollama_config import OLLAMA_MODEL, OLLAMA_API_URL
+from llm_service import chat_completion
 
 TOOLS = load_tools()
 SKILLS = load_skills()
@@ -23,21 +23,8 @@ def chat_with_llm(message: str, history: list = None, rag_context: list = None) 
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": message})
-    
-    payload = {
-        "model": OLLAMA_MODEL,
-        "messages": messages,
-        "stream": False
-    }
-    
-    # We need to change the generate endpoint to the chat endpoint
-    chat_url = OLLAMA_API_URL.replace("/api/generate", "/api/chat")
-    
     try:
-        response = requests.post(chat_url, json=payload, timeout=120)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("message", {}).get("content", "[No response]")
+        return chat_completion(messages=messages, stream=False, timeout=120)
     except Exception as e:
         return f"[Chat error: {str(e)}]"
 

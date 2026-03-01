@@ -9,9 +9,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 from memory import StructuredMemory
-from ollama_config import OLLAMA_MODEL, OLLAMA_API_URL
-
-# OLLAMA_API_URL and OLLAMA_MODEL are loaded from .env via ollama_config.py
+from llm_service import generate_completion
 HABIT_MEMORY_PATH = 'data/habits.json'
 
 # Intents that require habits context
@@ -31,7 +29,7 @@ PLANNER_SYSTEM_PROMPT = (
     "If the intent is 'remember_fact', extract the core fact to remember from the user's message and generate a 'remember_fact' action with a 'fact' parameter. "
     "Do not generate a 'parse_message' action. "
     "Respond ONLY with a JSON object: {{\"plan\": [ ... ]}}"
-    "\nFor scheduling, use the current date and time: {current_date}"
+    "\n{date_context}"
     "\nExamples:"
     "\nUser: I have a meeting tomorrow at 10:30 AM -> {{\"plan\": [{{\"type\": \"add_event\", \"params\": {{\"name\": \"meeting\", \"date\": \"2026-01-28\", \"time\": \"10:30\"}}}}]}}"
     "\nUser: What do I have this week? -> {{\"plan\": [{{\"type\": \"list_events\", \"params\": {{\"start\": \"2026-01-27\", \"end\": \"2026-02-03\"}}}}]}}"
@@ -58,22 +56,25 @@ def planner(state: AgentState) -> AgentState:
     ):
         context = dict(context)  # copy
         context['habits'] = load_habits()
-    # Add current date/time for LLM extraction
+    # Add Explicit Date Context for LLM calculation
     now = datetime.now()
-    current_date = now.strftime('%A, %Y-%m-%d %H:%M')
-    prompt = PLANNER_SYSTEM_PROMPT.format(current_date=current_date)
+    tomorrow = now + timedelta(days=1)
+    day_after = now + timedelta(days=2)
+    next_week = now + timedelta(days=7)
+    
+    date_context = (
+        f"Temporal Context:\n"
+        f"- Currently: {now.strftime('%A, %Y-%m-%d %H:%M')}\n"
+        f"- Tomorrow: {tomorrow.strftime('%A, %Y-%m-%d')}\n"
+        f"- Day after tomorrow: {day_after.strftime('%A, %Y-%m-%d')}\n"
+        f"- Next week (same day): {next_week.strftime('%A, %Y-%m-%d')}"
+    )
+    
+    prompt = PLANNER_SYSTEM_PROMPT.format(date_context=date_context)
     prompt = f"{prompt}\nIntent: {state.intent}\nContext: {json.dumps(context)}\nUser: {state.user_input}"
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False
-    }
     try:
-        response = requests.post(OLLAMA_API_URL, json=payload, timeout=120)
-
-        response.raise_for_status()
-        data = response.json()
-        output = data.get("response", "{}")
+        output = generate_completion(prompt=prompt, stream=False, timeout=120)
+        
         # Extract only the first valid JSON object from the output
         import re
         match = re.search(r'\{.*\}', output, re.DOTALL)
