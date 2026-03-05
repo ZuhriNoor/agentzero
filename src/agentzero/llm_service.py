@@ -1,6 +1,11 @@
+"""
+LLM Service for AgentZero — async httpx client.
+Supports Ollama (local) and Cloudflare Workers AI.
+"""
+import asyncio
 import os
 import logging
-import requests
+import httpx
 from dotenv import load_dotenv
 
 logger = logging.getLogger("agentzero.llm")
@@ -33,39 +38,41 @@ def _cloudflare_url(model: str) -> str:
     return f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model}"
 
 
-def _cloudflare_request(url: str, payload: dict, timeout: int, max_retries: int = 2) -> dict:
-    """Makes a Cloudflare API request with retry + exponential backoff."""
-    import time
+async def _cloudflare_request(url: str, payload: dict, timeout: int, max_retries: int = 2) -> dict:
+    """Async Cloudflare API request with retry + exponential backoff."""
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            response = requests.post(url, headers=_cloudflare_headers(), json=payload, timeout=timeout)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("success"):
-                return data
-            else:
-                raise Exception(f"Cloudflare error: {data.get('errors')}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url, headers=_cloudflare_headers(), json=payload, timeout=timeout
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("success"):
+                    return data
+                else:
+                    raise Exception(f"Cloudflare error: {data.get('errors')}")
         except Exception as e:
             last_error = e
             if attempt < max_retries:
                 backoff = 2 ** attempt  # 1s, 2s
                 logger.warning(f"Cloudflare attempt {attempt+1} failed: {e}. Retrying in {backoff}s...")
-                time.sleep(backoff)
+                await asyncio.sleep(backoff)
             else:
                 logger.error(f"Cloudflare failed after {max_retries+1} attempts: {e}")
     raise last_error
 
 
-def generate_completion(prompt: str, stream: bool = False, options: dict = None, timeout: int = 30) -> str:
-    """Raw text completion (used by router, planner, composer)"""
+async def generate_completion(prompt: str, stream: bool = False, options: dict = None, timeout: int = 30) -> str:
+    """Async raw text completion (used by router, planner)."""
     if LLM_PROVIDER == "cloudflare":
         payload = {
             "messages": [{"role": "user", "content": prompt}],
             "stream": stream
         }
         url = _cloudflare_url(CLOUDFLARE_TEXT_MODEL)
-        data = _cloudflare_request(url, payload, timeout)
+        data = await _cloudflare_request(url, payload, timeout)
         return data["result"]["response"].strip()
     else:
         # Default: Ollama
@@ -76,25 +83,26 @@ def generate_completion(prompt: str, stream: bool = False, options: dict = None,
         }
         if options:
             payload["options"] = options
-            
+
         try:
-            response = requests.post(OLLAMA_API_URL, json=payload, timeout=timeout)
-            response.raise_for_status()
-            return response.json().get("response", "").strip()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(OLLAMA_API_URL, json=payload, timeout=timeout)
+                response.raise_for_status()
+                return response.json().get("response", "").strip()
         except Exception as e:
             logger.error(f"Ollama generate error: {e}")
             raise
 
 
-def chat_completion(messages: list, stream: bool = False, timeout: int = 30) -> str:
-    """Chat-based completion with history (used by executor)"""
+async def chat_completion(messages: list, stream: bool = False, timeout: int = 30) -> str:
+    """Async chat-based completion with history (used by executor, response composer)."""
     if LLM_PROVIDER == "cloudflare":
         payload = {
             "messages": messages,
             "stream": stream
         }
         url = _cloudflare_url(CLOUDFLARE_TEXT_MODEL)
-        data = _cloudflare_request(url, payload, timeout)
+        data = await _cloudflare_request(url, payload, timeout)
         return data["result"]["response"].strip()
     else:
         # Default: Ollama
@@ -104,30 +112,32 @@ def chat_completion(messages: list, stream: bool = False, timeout: int = 30) -> 
             "stream": stream
         }
         try:
-            response = requests.post(OLLAMA_CHAT_URL, json=payload, timeout=timeout)
-            response.raise_for_status()
-            return response.json().get("message", {}).get("content", "[No response]").strip()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(OLLAMA_CHAT_URL, json=payload, timeout=timeout)
+                response.raise_for_status()
+                return response.json().get("message", {}).get("content", "[No response]").strip()
         except Exception as e:
             logger.error(f"Ollama chat error: {e}")
             return f"[Chat error: {str(e)}]"
 
 
-def get_embedding(text: str) -> list:
-    """Text embedding (used by context_builder)"""
+async def get_embedding(text: str) -> list:
+    """Async text embedding (used by context_builder)."""
     if LLM_PROVIDER == "cloudflare":
-        payload = {
-            "text": [text]
-        }
+        payload = {"text": [text]}
         url = _cloudflare_url(CLOUDFLARE_EMBEDDING_MODEL)
         try:
-            response = requests.post(url, headers=_cloudflare_headers(), json=payload, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("success"):
-                return data["result"]["data"][0]
-            else:
-                logger.error(f"Cloudflare embedding error: {data.get('errors')}")
-                return None
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url, headers=_cloudflare_headers(), json=payload, timeout=10
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("success"):
+                    return data["result"]["data"][0]
+                else:
+                    logger.error(f"Cloudflare embedding error: {data.get('errors')}")
+                    return None
         except Exception as e:
             logger.error(f"Cloudflare embedding error: {e}")
             return None
@@ -138,9 +148,10 @@ def get_embedding(text: str) -> list:
             "prompt": text
         }
         try:
-            response = requests.post(OLLAMA_EMBEDDINGS_API_URL, json=payload, timeout=10)
-            response.raise_for_status()
-            return response.json().get("embedding")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(OLLAMA_EMBEDDINGS_API_URL, json=payload, timeout=10)
+                response.raise_for_status()
+                return response.json().get("embedding")
         except Exception as e:
             logger.error(f"Ollama embedding error: {e}")
             return None

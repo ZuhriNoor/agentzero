@@ -5,7 +5,6 @@ Uses LLM to extract event details for scheduling intents.
 """
 
 from agentzero.agent_state import AgentState
-import requests
 import json
 import re
 from datetime import datetime, timedelta
@@ -47,7 +46,7 @@ def load_habits():
     data = mem.load()
     return data.get('habits', [])
 
-def planner(state: AgentState) -> AgentState:
+async def planner(state: AgentState) -> AgentState:
     from agentzero.memory import log_node
     log_node('planner:entry', state)
     if state.error:
@@ -78,7 +77,7 @@ def planner(state: AgentState) -> AgentState:
     prompt = PLANNER_SYSTEM_PROMPT.format(date_context=date_context)
     prompt = f"{prompt}\nIntent: {state.intent}\nContext: {json.dumps(context)}\nUser: {state.user_input}"
     try:
-        output = generate_completion(prompt=prompt, stream=False, timeout=30)
+        output = await generate_completion(prompt=prompt, stream=False, timeout=30)
         
         # Extract only the first valid JSON object from the output
         match = re.search(r'\{.*\}', output, re.DOTALL)

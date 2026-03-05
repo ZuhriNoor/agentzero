@@ -5,7 +5,6 @@ Production-grade two-stage intent classification.
 
 
 from agentzero.agent_state import AgentState
-import requests
 from typing import Set
 from agentzero.llm_service import generate_completion
 
@@ -122,11 +121,11 @@ def build_prompt(user_input: str, speech_act: str) -> str:
     )
 
 
-def classify_intent_llm(user_input: str, speech_act: str) -> str:
+async def classify_intent_llm(user_input: str, speech_act: str) -> str:
     prompt = build_prompt(user_input, speech_act)
 
     try:
-        raw = generate_completion(
+        raw = await generate_completion(
             prompt=prompt,
             stream=False,
             options={"temperature": 0.0, "top_p": 1.0},
@@ -149,9 +148,9 @@ def classify_intent_llm(user_input: str, speech_act: str) -> str:
 # Public router API
 # ======================
 
-def classify_intent(user_input: str) -> str:
+async def classify_intent(user_input: str) -> str:
     speech_act = classify_speech_act(user_input)
-    intent = classify_intent_llm(user_input, speech_act)
+    intent = await classify_intent_llm(user_input, speech_act)
 
     if intent in ALL_INTENTS and intent != "unknown":
         return intent
@@ -163,7 +162,7 @@ def classify_intent(user_input: str) -> str:
 # LangGraph node
 # ======================
 
-def intent_router(state: AgentState) -> AgentState:
+async def intent_router(state: AgentState) -> AgentState:
     from agentzero.memory import log_node
 
     log_node("intent_router:entry", state)
@@ -173,7 +172,7 @@ def intent_router(state: AgentState) -> AgentState:
         log_node("intent_router:error", state)
         return state
 
-    state.intent = classify_intent(state.user_input)
+    state.intent = await classify_intent(state.user_input)
     state.step = "intent_router"
 
     log_node("intent_router:exit", state)

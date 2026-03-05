@@ -10,7 +10,7 @@ from agentzero.llm_service import chat_completion
 logger = logging.getLogger("agentzero.response_composer")
 
 
-def response_composer(state: AgentState) -> AgentState:
+async def response_composer(state: AgentState) -> AgentState:
     from agentzero.memory import log_node
     log_node('response_composer:entry', state)
 
@@ -64,7 +64,7 @@ def response_composer(state: AgentState) -> AgentState:
             },
         ]
         try:
-            state.response = chat_completion(messages=messages, stream=False, timeout=30)
+            state.response = await chat_completion(messages=messages, stream=False, timeout=30)
         except Exception as e:
             logger.error(f"LLM response composition failed: {e}")
             # Fallback: return raw results as strings

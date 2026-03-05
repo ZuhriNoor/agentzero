@@ -45,7 +45,7 @@ def _format_habits(habits: list) -> str:
     return "\n".join(lines)
 
 
-def plan_day(date=None, **kwargs):
+async def plan_day(date=None, **kwargs):
     """Compose a full day plan from real calendar events + habits."""
     now = datetime.now()
 
@@ -90,10 +90,10 @@ def plan_day(date=None, **kwargs):
         },
     ]
 
-    return chat_completion(messages=messages, stream=False, timeout=30)
+    return await chat_completion(messages=messages, stream=False, timeout=30)
 
 
-def plan_week(start_date=None, **kwargs):
+async def plan_week(start_date=None, **kwargs):
     """Compose a week plan from real calendar events + habits."""
     now = datetime.now()
 
@@ -139,7 +139,7 @@ def plan_week(start_date=None, **kwargs):
         },
     ]
 
-    return chat_completion(messages=messages, stream=False, timeout=30)
+    return await chat_completion(messages=messages, stream=False, timeout=30)
 
 
 def register() -> dict:

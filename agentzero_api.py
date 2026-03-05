@@ -120,6 +120,58 @@ agent_app = build_agentzero_graph().compile()
 scheduler = None
 last_active_user_phone = None  # To track who to message on WhatsApp
 whisper_model = None
+_startup_time = time.time()
+
+
+# ==========================================
+# HEALTH CHECK (public, no auth)
+# ==========================================
+
+@app.get("/health")
+async def health_check():
+    """Simple health check with model availability."""
+    import requests as http_requests
+    from agentzero.llm_service import LLM_PROVIDER, OLLAMA_API_URL, OLLAMA_MODEL, CLOUDFLARE_TEXT_MODEL
+
+    uptime_secs = int(time.time() - _startup_time)
+    hours, remainder = divmod(uptime_secs, 3600)
+    mins, secs = divmod(remainder, 60)
+
+    # Check LLM model availability
+    llm_status = "unknown"
+    model_name = ""
+    try:
+        if LLM_PROVIDER == "cloudflare":
+            model_name = CLOUDFLARE_TEXT_MODEL or "not configured"
+            # Just check if we can reach Cloudflare (don't send a real prompt)
+            llm_status = "configured"
+        else:
+            model_name = OLLAMA_MODEL
+            # Ping Ollama's API to check if the model is available
+            base_url = OLLAMA_API_URL.replace("/api/generate", "")
+            resp = http_requests.get(f"{base_url}/api/tags", timeout=3)
+            if resp.status_code == 200:
+                available_models = [m["name"] for m in resp.json().get("models", [])]
+                if any(OLLAMA_MODEL in m for m in available_models):
+                    llm_status = "available"
+                else:
+                    llm_status = f"model not found (available: {', '.join(available_models[:5])})"
+            else:
+                llm_status = "ollama unreachable"
+    except Exception as e:
+        llm_status = f"error: {str(e)}"
+
+    return {
+        "status": "healthy",
+        "uptime": f"{hours}h {mins}m {secs}s",
+        "llm": {
+            "provider": LLM_PROVIDER,
+            "model": model_name,
+            "status": llm_status,
+        },
+        "whisper": "loaded" if whisper_model else "not loaded",
+        "websocket_clients": len(connected_clients),
+    }
 
 # ==========================================
 # AUTHENTICATION
@@ -167,9 +219,34 @@ async def startup_event():
             print(f"Failed to load Whisper: {e}")
 
 @app.on_event("shutdown")
-def shutdown_event():
+async def shutdown_event():
+    """
+    Gracefully shut down connections and background tasks.
+    """
+    logger.info("Initiating graceful shutdown...")
+    
+    # 1. Stop scheduler
     if scheduler:
         scheduler.stop()
+        logger.info("Scheduler stopped.")
+        
+    # 2. Close all active WebSocket connections
+    if connected_clients:
+        logger.info(f"Closing {len(connected_clients)} WebSocket connections...")
+        for ws in connected_clients.copy():
+            try:
+                await ws.close(code=1001, reason="Server shutting down")
+            except Exception:
+                pass
+        connected_clients.clear()
+        
+    # 3. Flush logs
+    for handler in logger.handlers:
+        handler.flush()
+        if hasattr(handler, 'close'):
+            handler.close()
+            
+    logger.info("Shutdown complete.")
 
 # Helper for WhatsApp Media
 async def download_whatsapp_media(media_id: str) -> str:
@@ -225,7 +302,7 @@ async def voice_endpoint(file: UploadFile = File(...), _user: str = Depends(requ
             return {"response": "I couldn't hear anything.", "transcription": ""}
 
         # Execute Agent
-        agent_response = await run_in_threadpool(run_agent_pipeline, text)
+        agent_response = await run_agent_pipeline(text)
         return {"response": agent_response, "transcription": text}
 
     except Exception as e:
@@ -294,20 +371,20 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
             logger.debug(f"WS Received: {data}")
             
     except WebSocketDisconnect:
-        print("Client disconnected normally.")
+        logger.info("Client disconnected normally.")
     except Exception as e:
-        print(f"WebSocket Error: {e}")
+        logger.error(f"WebSocket Error: {e}")
         # traceback.print_exc()
     finally:
         if 'heartbeat_task' in locals():
             heartbeat_task.cancel()
         if websocket in connected_clients:
             connected_clients.remove(websocket)
-        print("Client removed.")
+        logger.info("Client removed.")
 
-def run_agent_pipeline(user_input: str, session_id: str = "default") -> str:
+async def run_agent_pipeline(user_input: str, session_id: str = "default") -> str:
     """
-    Invokes the AgentZero LangGraph with the user's input.
+    Invokes the AgentZero LangGraph with the user's input (async).
     Maintains a sliding window of the last 5 chat interactions.
     Returns the final response string.
     """
@@ -320,8 +397,8 @@ def run_agent_pipeline(user_input: str, session_id: str = "default") -> str:
         history = session_data["history"]
         
         initial_state = {"user_input": user_input, "chat_history": history}
-        # invoke() runs the graph until END and returns the final state
-        final_state = agent_app.invoke(initial_state)
+        # ainvoke() runs the async graph until END and returns the final state
+        final_state = await agent_app.ainvoke(initial_state)
         
         # Helper to extract response (handles both Pydantic object and dict)
         if isinstance(final_state, dict):
@@ -363,7 +440,7 @@ class ChatResponse(BaseModel):
 async def chat_endpoint(req: ChatRequest, request: Request, _user: str = Depends(require_auth)):
     check_rate_limit(request.client.host)
     try:
-        agent_response = await run_in_threadpool(run_agent_pipeline, req.message, req.session_id or "default")
+        agent_response = await run_agent_pipeline(req.message, req.session_id or "default")
         return ChatResponse(response=agent_response)
     except Exception as e:
         logger.error(f"Chat error: {e}")
