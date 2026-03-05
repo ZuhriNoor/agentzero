@@ -2,13 +2,13 @@
 Example: Error handler node for LangGraph (production-grade).
 Handles errors, logs them, and provides deterministic fallback.
 """
-from agent_state import AgentState
-from memory import AuditLog
+from agentzero.agent_state import AgentState
+from agentzero.memory import AuditLog
 
 LOG_PATH = 'data/audit.log'
 
 def error_handler(state: AgentState) -> AgentState:
-    from memory import log_node
+    from agentzero.memory import log_node
     log_node('error_handler:entry', state)
     # Log the error
     audit = AuditLog(LOG_PATH)

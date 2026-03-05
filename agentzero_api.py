@@ -3,12 +3,14 @@
 # Serves as a secure, local-first gateway for mobile/desktop clients.
 # Connects to the LangGraph agent system as a backend module.
 
+import logging
+import tempfile
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, UploadFile, File, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
-from auth import (
+from pydantic import BaseModel, field_validator
+from agentzero.auth import (
     LoginRequest, TokenResponse, authenticate_user,
     create_access_token, require_auth, validate_ws_token,
     hash_password,
@@ -17,17 +19,39 @@ import uvicorn
 import os
 import httpx
 from dotenv import load_dotenv
-from typing import Set, List, Dict
-from graph import build_agentzero_graph
-from scheduler import Scheduler
+from typing import Set, List, Dict, Any
+from agentzero.graph import build_agentzero_graph
+from agentzero.scheduler import Scheduler
 import asyncio
 import shutil
 import uuid
+
+# Structured logging — console + file
+LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=LOG_FORMAT,
+    datefmt=LOG_DATE_FORMAT,
+)
+
+# Add rotating file handler (persists logs to disk)
+from logging.handlers import RotatingFileHandler
+os.makedirs("data", exist_ok=True)
+file_handler = RotatingFileHandler(
+    "data/agentzero.log", maxBytes=5 * 1024 * 1024, backupCount=3  # 5MB, keep 3 backups
+)
+file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+logging.getLogger().addHandler(file_handler)
+
+logger = logging.getLogger("agentzero.api")
+
 # Import Whisper
 try:
     from faster_whisper import WhisperModel
 except ImportError:
-    print("Warning: faster-whisper not installed. Voice features will fail.")
+    logger.warning("faster-whisper not installed. Voice features will fail.")
     WhisperModel = None
 
 load_dotenv()
@@ -37,16 +61,46 @@ WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 
-# Simple in-memory deduplication
+import time
+from collections import deque
+
+# Simple in-memory deduplication (capped at 10,000 to prevent unbounded growth)
+MAX_PROCESSED_IDS = 10000
 processed_message_ids: Set[str] = set()
+processed_message_queue: deque = deque()
 
 # Short-term memory (STM) for conversational chat mapped by session_id
-session_memory: Dict[str, List[Dict[str, str]]] = {}
+# Format: { session_id: {"history": [...], "last_accessed": time.time()} }
+session_memory: Dict[str, Dict[str, Any]] = {}
+
+def cleanup_session_memory(max_age_seconds: int = 3600):
+    """Removes sessions that haven't been accessed in max_age_seconds."""
+    now = time.time()
+    expired = [sid for sid, data in session_memory.items() if now - data["last_accessed"] > max_age_seconds]
+    for sid in expired:
+        del session_memory[sid]
 
 # WebSocket Connection Manager
 # This list tracks active connections from your separate app (e.g., React Native, Flutter, Web App)
 # When a notification needs to be sent, we will broadcast it to all these clients.
 connected_clients: List[WebSocket] = []
+
+# --- Rate Limiting ---
+MAX_MESSAGE_LENGTH = 2000
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX = 20  # max requests per window
+_rate_limit_store: Dict[str, List[float]] = {}
+
+def check_rate_limit(client_ip: str):
+    """Simple in-memory rate limiter. Raises HTTPException if exceeded."""
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    requests = _rate_limit_store.get(client_ip, [])
+    requests = [t for t in requests if t > window_start]
+    if len(requests) >= RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    requests.append(now)
+    _rate_limit_store[client_ip] = requests
 
 app = FastAPI(title="AgentZero API", description="Local-first agent API server.")
 
@@ -102,7 +156,7 @@ async def startup_event():
     
     # Initialize Whisper (Tiny model for speed, CPU int8 for compatibility)
     if WhisperModel:
-        print("Loading Whisper Model (tiny)...")
+        logger.info("Loading Whisper Model (tiny)...")
         try:
             # Models: tiny, base, small, medium, large-v3
             # 'small' is a good balance for CPU. 'medium' is better but slower.
@@ -142,12 +196,11 @@ async def download_whatsapp_media(media_id: str) -> str:
         )
         media_resp.raise_for_status()
         
-        # 3. Save to file
-        filename = f"temp_wa_{uuid.uuid4()}.ogg" # WhatsApp usually sends OGG
-        with open(filename, "wb") as f:
-            f.write(media_resp.content)
-            
-        return filename
+        # 3. Save to temp file (safe)
+        tmp = tempfile.NamedTemporaryFile(prefix="wa_", suffix=".ogg", delete=False)
+        tmp.write(media_resp.content)
+        tmp.close()
+        return tmp.name
 
 @app.post("/voice")
 async def voice_endpoint(file: UploadFile = File(...), _user: str = Depends(require_auth)):
@@ -157,33 +210,30 @@ async def voice_endpoint(file: UploadFile = File(...), _user: str = Depends(requ
     if not whisper_model:
         raise HTTPException(status_code=500, detail="Whisper model not loaded.")
     
-    # Save temp file
-    temp_filename = f"temp_{uuid.uuid4()}_{file.filename}"
-    with open(temp_filename, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+    # Save to safe temp file
+    tmp = tempfile.NamedTemporaryFile(prefix="voice_", suffix=f"_{file.filename}", delete=False)
     try:
+        shutil.copyfileobj(file.file, tmp)
+        tmp.close()
+
         # Transcribe
-        # beam_size=5 is standard.
-        segments, info = await run_in_threadpool(whisper_model.transcribe, temp_filename, beam_size=5)
+        segments, info = await run_in_threadpool(whisper_model.transcribe, tmp.name, beam_size=5)
         text = "".join([s.text for s in segments]).strip()
-        print(f"[Voice] Transcribed: {text}")
-        
+        logger.info(f"[Voice] Transcribed: {text}")
+
         if not text:
-             return {"response": "I couldn't hear anything.", "transcription": ""}
+            return {"response": "I couldn't hear anything.", "transcription": ""}
 
         # Execute Agent
-        agent_response = run_agent_pipeline(text)
+        agent_response = await run_in_threadpool(run_agent_pipeline, text)
         return {"response": agent_response, "transcription": text}
-        
+
     except Exception as e:
-        print(f"Voice Error: {e}")
+        logger.error(f"Voice Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        
     finally:
-        # Cleanup
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+        if os.path.exists(tmp.name):
+            os.remove(tmp.name)
 
 # ==========================================
 # NOTIFICATION SYSTEM (Multi-Channel)
@@ -193,43 +243,37 @@ async def voice_endpoint(file: UploadFile = File(...), _user: str = Depends(requ
 # 2. WebSocket Clients (your separate app)
 # ==========================================
 async def broadcast_notification(message: str):
-    print(f"[BROADCAST] Notification: {message}")
-    
+    logger.info(f"[BROADCAST] Notification: {message}")
+
     # Channel 1: WebSocket Broadcast (Your App)
     for client in connected_clients:
         try:
             await client.send_text(message)
         except Exception as e:
-            print(f"Error sending to WebSocket client: {e}")
-            
+            logger.error(f"Error sending to WebSocket client: {e}")
+
     # Channel 2: WhatsApp (Push Notification)
     if last_active_user_phone:
         await send_whatsapp_message(last_active_user_phone, message)
     else:
-        print("No active WhatsApp user to notify.")
+        logger.debug("No active WhatsApp user to notify.")
 
-from fastapi import WebSocket, WebSocketDisconnect
-import traceback
-
-# Make sure these are imported!
-connected_clients = [] 
 
 @app.websocket("/ws/notifications")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
     # Validate JWT token for WebSocket connections
     if not token or not validate_ws_token(token):
         await websocket.close(code=4001, reason="Unauthorized")
-        print("WebSocket rejected: invalid or missing token.")
+        logger.warning("WebSocket rejected: invalid or missing token.")
         return
 
-    print("Attempting to connect...")
+    logger.info("Attempting WebSocket connection...")
     await websocket.accept()
-    # 1. Send a "Welcome" message to turn the App Light GREEN
-    await websocket.send_text("Connected via WebSocket") 
-    print("Connection accepted!")
-    
+    await websocket.send_text("Connected via WebSocket")
+    logger.info("WebSocket connection accepted!")
+
     connected_clients.append(websocket)
-    print(f"Client added. Total clients: {len(connected_clients)}")
+    logger.info(f"Client added. Total clients: {len(connected_clients)}")
 
     try:
         # Create a heartbeat task to keep connection alive through Cloudflare
@@ -247,7 +291,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
         while True:
             # We just listen. If client disconnects, receive_text raises generic Exception or WebSocketDisconnect
             data = await websocket.receive_text()
-            print(f"Received: {data}")
+            logger.debug(f"WS Received: {data}")
             
     except WebSocketDisconnect:
         print("Client disconnected normally.")
@@ -268,8 +312,12 @@ def run_agent_pipeline(user_input: str, session_id: str = "default") -> str:
     Returns the final response string.
     """
     try:
+        # Cleanup old sessions before accessing
+        cleanup_session_memory()
+        
         # Retrieve history for this session
-        history = session_memory.get(session_id, [])
+        session_data = session_memory.get(session_id, {"history": [], "last_accessed": time.time()})
+        history = session_data["history"]
         
         initial_state = {"user_input": user_input, "chat_history": history}
         # invoke() runs the graph until END and returns the final state
@@ -288,7 +336,7 @@ def run_agent_pipeline(user_input: str, session_id: str = "default") -> str:
         if len(history) > 10:
             history = history[-10:]
             
-        session_memory[session_id] = history
+        session_memory[session_id] = {"history": history, "last_accessed": time.time()}
         
         return agent_response
     except Exception as e:
@@ -296,18 +344,29 @@ def run_agent_pipeline(user_input: str, session_id: str = "default") -> str:
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str = None  # Optional: for STM
+    session_id: str = None
+
+    @field_validator('message')
+    @classmethod
+    def validate_message(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Message cannot be empty')
+        if len(v) > MAX_MESSAGE_LENGTH:
+            raise ValueError(f'Message too long (max {MAX_MESSAGE_LENGTH} chars)')
+        return v.strip()
 
 class ChatResponse(BaseModel):
     response: str
     audit_id: str = None
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest, _user: str = Depends(require_auth)):
+async def chat_endpoint(req: ChatRequest, request: Request, _user: str = Depends(require_auth)):
+    check_rate_limit(request.client.host)
     try:
-        agent_response = run_agent_pipeline(req.message, req.session_id or "default")
+        agent_response = await run_in_threadpool(run_agent_pipeline, req.message, req.session_id or "default")
         return ChatResponse(response=agent_response)
     except Exception as e:
+        logger.error(f"Chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/webhook")
@@ -321,7 +380,7 @@ async def verify_webhook(request: Request):
 
     if mode and token:
         if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
-            print("WEBHOOK_VERIFIED")
+            logger.info("WEBHOOK_VERIFIED")
             return int(challenge)
         else:
             raise HTTPException(status_code=403, detail="Verification failed")
@@ -358,6 +417,10 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
                 return {"status": "ok"}
             
             processed_message_ids.add(message_id)
+            processed_message_queue.append(message_id)
+            if len(processed_message_queue) > MAX_PROCESSED_IDS:
+                oldest_id = processed_message_queue.popleft()
+                processed_message_ids.discard(oldest_id)
             
             if from_number:
                 print(f"Received message from {from_number} (Type: {message.get('type')})")

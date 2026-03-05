@@ -4,10 +4,10 @@ Production-grade two-stage intent classification.
 """
 
 
-from agent_state import AgentState
+from agentzero.agent_state import AgentState
 import requests
 from typing import Set
-from llm_service import generate_completion
+from agentzero.llm_service import generate_completion
 
 
 # ======================
@@ -132,10 +132,11 @@ def classify_intent_llm(user_input: str, speech_act: str) -> str:
             options={"temperature": 0.0, "top_p": 1.0},
             timeout=10
         )
+        intent = ""
         if raw:
             intent = raw.strip().lower().split()[0]
 
-        if intent in INTENT_BUCKETS[speech_act]:
+        if intent in INTENT_BUCKETS.get(speech_act, set()):
             return intent
 
     except Exception:
@@ -163,7 +164,7 @@ def classify_intent(user_input: str) -> str:
 # ======================
 
 def intent_router(state: AgentState) -> AgentState:
-    from memory import log_node
+    from agentzero.memory import log_node
 
     log_node("intent_router:entry", state)
 

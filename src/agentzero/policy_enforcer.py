@@ -1,11 +1,12 @@
 """
 Policy Enforcer node for AgentZero (LangGraph).
-Enforces explicit permission gating and privacy/safety policies for all actions.
+Enforces intent-level gating and pre-authorizes actions based on the POLICY dict.
+Per-action permission checks happen in the executor at dispatch time.
 """
-from agent_state import AgentState
-from memory import AuditLog
+from agentzero.agent_state import AgentState
+from agentzero.memory import AuditLog
 
-# Example: static policy config (could be loaded from file)
+# Policy config — controls which actions are allowed
 POLICY = {
     "chat": {"allowed": True, "reason": "General conversation allowed"},
     "add_task": {"allowed": True, "reason": "User productivity"},
@@ -21,23 +22,24 @@ POLICY = {
     "track_habit": {"allowed": True, "reason": "Habit tracking allowed"},
     "parse_message": {"allowed": True, "reason": "LLM message parsing allowed"},
     "remember_fact": {"allowed": True, "reason": "Memory storage allowed"},
-    # ...extend as needed...
 }
 
 LOG_PATH = 'data/audit.log'
 
 def policy_enforcer(state: AgentState) -> AgentState:
-    from memory import log_node
+    from agentzero.memory import log_node
     log_node('policy_enforcer:entry', state)
     if state.error:
         state.step = "error_handler"
         log_node('policy_enforcer:error', state)
         return state
+
     intent = state.intent or "unknown"
     policy = POLICY.get(intent, {"allowed": False, "reason": "Unknown or unconfigured intent"})
     allowed = policy["allowed"]
     reason = policy["reason"]
-    # Log the policy decision
+
+    # Audit log the intent decision
     audit = AuditLog(LOG_PATH)
     audit.append({
         "step": "policy_enforcer",
@@ -46,26 +48,20 @@ def policy_enforcer(state: AgentState) -> AgentState:
         "reason": reason,
         "user_input": state.user_input
     })
-    # Enforce policy
+
+    # Block disallowed intents
     if not allowed:
         state.error = f"Action '{intent}' blocked: {reason}"
         state.step = "error_handler"
         log_node('policy_enforcer:error', state)
         return state
-    state.permissions[intent] = allowed
-    # Also grant permissions for all action types in the plan
-    if state.plan:
-        for action in state.plan:
-            action_type = action.get("type")
-            if action_type and action_type in POLICY:
-                state.permissions[action_type] = POLICY[action_type]["allowed"]
-    
-    # If intent is chat, pre-authorize safe tools so the planner can use them freely
-    if intent == "chat":
-        SAFE_TOOLS = ["add_task", "add_event", "list_events", "list_habits", "add_habit", "track_habit", "query_note", "plan_day", "plan_week", "remember_fact"]
-        for tool in SAFE_TOOLS:
-            if tool in POLICY and POLICY[tool]["allowed"]:
-                state.permissions[tool] = True
+
+    # Pre-authorize all allowed actions from POLICY
+    # The executor will check these at dispatch time
+    for action_name, action_policy in POLICY.items():
+        if action_policy["allowed"]:
+            state.permissions[action_name] = True
+
     state.step = "policy_enforcer"
     log_node('policy_enforcer:exit', state)
     return state

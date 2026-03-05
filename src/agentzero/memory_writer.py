@@ -2,8 +2,8 @@
 Memory Writer node for AgentZero (LangGraph).
 Persists STM→LTM, structured memory, and audit log after execution.
 """
-from agent_state import AgentState
-from memory import ShortTermMemory, LongTermMemory, StructuredMemory, AuditLog
+from agentzero.agent_state import AgentState
+from agentzero.memory import ShortTermMemory, LongTermMemory, StructuredMemory, AuditLog
 import os
 import json
 
@@ -13,7 +13,7 @@ LOG_PATH = 'data/audit.log'
 
 
 def memory_writer(state: AgentState) -> AgentState:
-    from memory import log_node
+    from agentzero.memory import log_node
     log_node('memory_writer:entry', state)
     if state.error:
         state.step = "error_handler"

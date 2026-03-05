@@ -1,6 +1,9 @@
 import os
+import logging
 import requests
 from dotenv import load_dotenv
+
+logger = logging.getLogger("agentzero.llm")
 
 load_dotenv()
 
@@ -30,29 +33,40 @@ def _cloudflare_url(model: str) -> str:
     return f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model}"
 
 
-def generate_completion(prompt: str, stream: bool = False, options: dict = None, timeout: int = 120) -> str:
-    """Raw text completion (used by router, planner, composer)"""
-    if LLM_PROVIDER == "cloudflare":
-        # Cloudflare uses a messages array even for raw generation on instruct models, 
-        # but supports raw prompt for text generation models. We'll wrap prompt in a user message.
-        payload = {
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": stream
-        }
-        # Add temperature etc if needed, CF names them similarly but not identically to Ollama
-        
-        url = _cloudflare_url(CLOUDFLARE_TEXT_MODEL)
+def _cloudflare_request(url: str, payload: dict, timeout: int, max_retries: int = 2) -> dict:
+    """Makes a Cloudflare API request with retry + exponential backoff."""
+    import time
+    last_error = None
+    for attempt in range(max_retries + 1):
         try:
             response = requests.post(url, headers=_cloudflare_headers(), json=payload, timeout=timeout)
             response.raise_for_status()
             data = response.json()
             if data.get("success"):
-                return data["result"]["response"].strip()
+                return data
             else:
                 raise Exception(f"Cloudflare error: {data.get('errors')}")
         except Exception as e:
-            print(f"[LLM Service Error] Cloudflare generate: {e}")
-            raise
+            last_error = e
+            if attempt < max_retries:
+                backoff = 2 ** attempt  # 1s, 2s
+                logger.warning(f"Cloudflare attempt {attempt+1} failed: {e}. Retrying in {backoff}s...")
+                time.sleep(backoff)
+            else:
+                logger.error(f"Cloudflare failed after {max_retries+1} attempts: {e}")
+    raise last_error
+
+
+def generate_completion(prompt: str, stream: bool = False, options: dict = None, timeout: int = 30) -> str:
+    """Raw text completion (used by router, planner, composer)"""
+    if LLM_PROVIDER == "cloudflare":
+        payload = {
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": stream
+        }
+        url = _cloudflare_url(CLOUDFLARE_TEXT_MODEL)
+        data = _cloudflare_request(url, payload, timeout)
+        return data["result"]["response"].strip()
     else:
         # Default: Ollama
         payload = {
@@ -68,11 +82,11 @@ def generate_completion(prompt: str, stream: bool = False, options: dict = None,
             response.raise_for_status()
             return response.json().get("response", "").strip()
         except Exception as e:
-            print(f"[LLM Service Error] Ollama generate: {e}")
+            logger.error(f"Ollama generate error: {e}")
             raise
 
 
-def chat_completion(messages: list, stream: bool = False, timeout: int = 120) -> str:
+def chat_completion(messages: list, stream: bool = False, timeout: int = 30) -> str:
     """Chat-based completion with history (used by executor)"""
     if LLM_PROVIDER == "cloudflare":
         payload = {
@@ -80,17 +94,8 @@ def chat_completion(messages: list, stream: bool = False, timeout: int = 120) ->
             "stream": stream
         }
         url = _cloudflare_url(CLOUDFLARE_TEXT_MODEL)
-        try:
-            response = requests.post(url, headers=_cloudflare_headers(), json=payload, timeout=timeout)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("success"):
-                return data["result"]["response"].strip()
-            else:
-                raise Exception(f"Cloudflare error: {data.get('errors')}")
-        except Exception as e:
-            print(f"[LLM Service Error] Cloudflare chat: {e}")
-            raise
+        data = _cloudflare_request(url, payload, timeout)
+        return data["result"]["response"].strip()
     else:
         # Default: Ollama
         payload = {
@@ -103,7 +108,7 @@ def chat_completion(messages: list, stream: bool = False, timeout: int = 120) ->
             response.raise_for_status()
             return response.json().get("message", {}).get("content", "[No response]").strip()
         except Exception as e:
-            print(f"[LLM Service Error] Ollama chat: {e}")
+            logger.error(f"Ollama chat error: {e}")
             return f"[Chat error: {str(e)}]"
 
 
@@ -121,10 +126,10 @@ def get_embedding(text: str) -> list:
             if data.get("success"):
                 return data["result"]["data"][0]
             else:
-                print(f"Cloudflare embedding error: {data.get('errors')}")
+                logger.error(f"Cloudflare embedding error: {data.get('errors')}")
                 return None
         except Exception as e:
-            print(f"[LLM Service Error] Cloudflare embedding: {e}")
+            logger.error(f"Cloudflare embedding error: {e}")
             return None
     else:
         # Default: Ollama
@@ -137,5 +142,5 @@ def get_embedding(text: str) -> list:
             response.raise_for_status()
             return response.json().get("embedding")
         except Exception as e:
-            print(f"[LLM Service Error] Ollama embedding: {e}")
+            logger.error(f"Ollama embedding error: {e}")
             return None

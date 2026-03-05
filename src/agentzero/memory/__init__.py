@@ -1,8 +1,33 @@
+"""
+Local memory modules for AgentZero: STM, LTM, Structured, AuditLog.
+Thread-safe file operations with per-file locking.
+"""
+import os
+import json
+import logging
 import threading
+from typing import Any, Dict, List
 
-# Node-level logging utility
+logger = logging.getLogger("agentzero.memory")
+
+# Per-file locks to prevent concurrent writes to the same file
+_file_locks: Dict[str, threading.Lock] = {}
+_file_locks_lock = threading.Lock()
+
+
+def _get_file_lock(path: str) -> threading.Lock:
+    """Get or create a lock for a specific file path."""
+    with _file_locks_lock:
+        if path not in _file_locks:
+            _file_locks[path] = threading.Lock()
+        return _file_locks[path]
+
+
+# Node-level trace logging
 LOG_PIPE_PATH = 'data/node_trace.log'
-LOG_LOCK = threading.Lock()
+_trace_lock = threading.Lock()
+
+
 def log_node(step, state):
     entry = {
         'step': step,
@@ -14,15 +39,10 @@ def log_node(step, state):
         'tool_results': getattr(state, 'tool_results', None),
         'response': getattr(state, 'response', None),
     }
-    with LOG_LOCK:
+    with _trace_lock:
         with open(LOG_PIPE_PATH, 'a') as f:
             f.write(json.dumps(entry) + '\n')
-"""
-Local memory modules for AgentZero: STM, LTM, Structured, AuditLog.
-"""
-import os
-import json
-from typing import Any, Dict, List
+
 
 class ShortTermMemory:
     def __init__(self):
@@ -36,6 +56,7 @@ class ShortTermMemory:
 
     def clear(self):
         self.state.clear()
+
 
 class LongTermMemory:
     def __init__(self, db_path: str):
@@ -54,7 +75,6 @@ class LongTermMemory:
         )
 
     def query(self, query_text: str, top_k=5) -> List[str]:
-        # Returns top_k documents as a flat list
         try:
             results = self.collection.query(
                 query_texts=[query_text],
@@ -64,40 +84,49 @@ class LongTermMemory:
                 return results["documents"][0]
             return []
         except Exception as e:
-            print(f"ChromaDB Query Error: {e}")
+            logger.error(f"ChromaDB Query Error: {e}")
             return []
+
 
 class StructuredMemory:
     def __init__(self, file_path: str):
         self.file_path = file_path
+        self._lock = _get_file_lock(file_path)
         if not os.path.exists(file_path):
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, 'w') as f:
                 json.dump({}, f)
 
     def load(self) -> Dict[str, Any]:
-        try:
-            with open(self.file_path, 'r') as f:
-                content = f.read().strip()
-                if not content:
-                    return {}
-                return json.loads(content)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return {}
+        with self._lock:
+            try:
+                with open(self.file_path, 'r') as f:
+                    content = f.read().strip()
+                    if not content:
+                        return {}
+                    return json.loads(content)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return {}
 
     def save(self, data: Dict[str, Any]):
-        with open(self.file_path, 'w') as f:
-            json.dump(data, f, indent=2)
+        with self._lock:
+            with open(self.file_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
 
 class AuditLog:
     def __init__(self, log_path: str):
         self.log_path = log_path
+        self._lock = _get_file_lock(log_path)
 
     def append(self, entry: Dict[str, Any]):
-        with open(self.log_path, 'a') as f:
-            f.write(json.dumps(entry) + '\n')
+        with self._lock:
+            with open(self.log_path, 'a') as f:
+                f.write(json.dumps(entry) + '\n')
 
     def read_all(self) -> List[Dict[str, Any]]:
-        if not os.path.exists(self.log_path):
-            return []
-        with open(self.log_path, 'r') as f:
-            return [json.loads(line) for line in f if line.strip()]
+        with self._lock:
+            if not os.path.exists(self.log_path):
+                return []
+            with open(self.log_path, 'r') as f:
+                return [json.loads(line) for line in f if line.strip()]

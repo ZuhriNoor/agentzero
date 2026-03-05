@@ -2,8 +2,8 @@
 Example skill: Add a task to the local planner (structured memory) and associate with local calendar.
 """
 from . import Skill
-from memory import StructuredMemory
-from tools.calendar import LocalCalendarTool
+from agentzero.memory import StructuredMemory
+from agentzero.tools.calendar import LocalCalendarTool
 from datetime import datetime
 
 def add_task_to_planner(task: str, due: str = None, calendar_event: dict = None):

@@ -4,12 +4,13 @@ Generates multi-step plans using a local LLM via Ollama API, deterministic outpu
 Uses LLM to extract event details for scheduling intents.
 """
 
-from agent_state import AgentState
+from agentzero.agent_state import AgentState
 import requests
 import json
+import re
 from datetime import datetime, timedelta
-from memory import StructuredMemory
-from llm_service import generate_completion
+from agentzero.memory import StructuredMemory
+from agentzero.llm_service import generate_completion
 HABIT_MEMORY_PATH = 'data/habits.json'
 
 # Intents that require habits context
@@ -27,6 +28,8 @@ PLANNER_SYSTEM_PROMPT = (
     "If the intent is 'add_task' or 'add_event', extract the event name, date, and time directly from the user's message and generate only an 'add_event' or 'add_task' action with those parameters. "
     "If the intent is 'list_events', extract 'start' and 'end' dates if a range is specified. 'start' defaults to filter events FROM that time onwards. To list events for a specific day, PROVIDE BOTH 'start' (00:00) and 'end' (23:59) for that day. "
     "If the intent is 'remember_fact', extract the core fact to remember from the user's message and generate a 'remember_fact' action with a 'fact' parameter. "
+    "If the intent is 'plan_day', generate a SINGLE 'plan_day' action with a 'date' parameter (YYYY-MM-DD). The action will fetch events and habits internally. "
+    "If the intent is 'plan_week', generate a SINGLE 'plan_week' action with a 'start_date' parameter (YYYY-MM-DD). The action will fetch events and habits internally. "
     "Do not generate a 'parse_message' action. "
     "Respond ONLY with a JSON object: {{\"plan\": [ ... ]}}"
     "\n{date_context}"
@@ -35,6 +38,8 @@ PLANNER_SYSTEM_PROMPT = (
     "\nUser: What do I have this week? -> {{\"plan\": [{{\"type\": \"list_events\", \"params\": {{\"start\": \"2026-01-27\", \"end\": \"2026-02-03\"}}}}]}}"
     "\nUser: add buy milk to my todos -> {{\"plan\": [{{\"type\": \"add_task\", \"params\": {{\"task\": \"buy milk\"}}}}]}}"
     "\nUser: remember that my wife's name is Sarah -> {{\"plan\": [{{\"type\": \"remember_fact\", \"params\": {{\"fact\": \"Wife's name is Sarah\"}}}}]}}"
+    "\nUser: plan my day for tomorrow -> {{\"plan\": [{{\"type\": \"plan_day\", \"params\": {{\"date\": \"2026-01-28\"}}}}]}}"
+    "\nUser: plan my week -> {{\"plan\": [{{\"type\": \"plan_week\", \"params\": {{\"start_date\": \"2026-01-28\"}}}}]}}"
 )
 
 def load_habits():
@@ -43,7 +48,7 @@ def load_habits():
     return data.get('habits', [])
 
 def planner(state: AgentState) -> AgentState:
-    from memory import log_node
+    from agentzero.memory import log_node
     log_node('planner:entry', state)
     if state.error:
         state.step = "error_handler"
@@ -73,10 +78,9 @@ def planner(state: AgentState) -> AgentState:
     prompt = PLANNER_SYSTEM_PROMPT.format(date_context=date_context)
     prompt = f"{prompt}\nIntent: {state.intent}\nContext: {json.dumps(context)}\nUser: {state.user_input}"
     try:
-        output = generate_completion(prompt=prompt, stream=False, timeout=120)
+        output = generate_completion(prompt=prompt, stream=False, timeout=30)
         
         # Extract only the first valid JSON object from the output
-        import re
         match = re.search(r'\{.*\}', output, re.DOTALL)
         json_str = match.group(0) if match else '{}'
         plan_data = json.loads(json_str)

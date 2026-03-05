@@ -2,7 +2,7 @@
 Memory tool for AgentZero.
 Provides the ability to save facts directly to ChromaDB (LongTermMemory).
 """
-from memory import LongTermMemory
+from agentzero.memory import LongTermMemory
 
 class LocalMemoryTool:
     def __init__(self):

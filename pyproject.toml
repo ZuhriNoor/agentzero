@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentzero"
+version = "0.1.0"
+description = "Local-first, privacy-preserving AI agent system"
+readme = "SCALING.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "langgraph",
+    "langchain",
+    "pydantic",
+    "httpx",
+    "python-dotenv",
+    "chromadb",
+    "ics",
+    "arrow",
+    "python-dateutil",
+    "passlib[bcrypt]",
+    "python-jose[cryptography]",
+    "bcrypt==4.0.1",
+    "faster-whisper",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

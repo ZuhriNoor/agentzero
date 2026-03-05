@@ -1,5 +1,4 @@
-"""
-How AgentZero scales to multi-agent systems:
+# How AgentZero Scales to Multi-Agent Systems
 
 - Each agent is an independent LangGraph instance with its own local memory, skills, and audit log.
 - Agents communicate via local IPC (e.g., Unix sockets, named pipes, or local message bus), never over the cloud.
