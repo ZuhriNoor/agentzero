@@ -3,6 +3,7 @@ Composite actions that internally fetch events, load habits, and compose
 a day/week plan via the LLM — no multi-step planner chains needed.
 """
 from datetime import datetime, timedelta
+from dateutil import tz
 from . import Action
 from agentzero.tools.calendar import LocalCalendarTool
 from agentzero.memory import StructuredMemory
@@ -63,7 +64,7 @@ def _format_tasks(tasks: list) -> str:
 
 async def plan_day(date=None, **kwargs):
     """Compose a full day plan from real calendar events + habits."""
-    now = datetime.now()
+    now = datetime.now(tz.tzlocal())
 
     if date:
         from dateutil.parser import parse as parse_date
@@ -119,7 +120,7 @@ async def plan_day(date=None, **kwargs):
 
 async def plan_week(start_date=None, **kwargs):
     """Compose a week plan from real calendar events + habits."""
-    now = datetime.now()
+    now = datetime.now(tz.tzlocal())
 
     if start_date:
         from dateutil.parser import parse as parse_date
