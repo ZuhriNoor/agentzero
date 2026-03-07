@@ -8,6 +8,7 @@ from agentzero.agent_state import AgentState
 import json
 import re
 from datetime import datetime, timedelta
+from dateutil import tz
 from agentzero.memory import StructuredMemory
 from agentzero.llm_service import generate_completion
 HABIT_MEMORY_PATH = 'data/habits.json'
@@ -65,7 +66,7 @@ async def planner(state: AgentState) -> AgentState:
         context = dict(context)  # copy
         context['habits'] = load_habits()
     # Add Explicit Date Context for LLM calculation
-    now = datetime.now()
+    now = datetime.now(tz.tzlocal())
     tomorrow = now + timedelta(days=1)
     day_after = now + timedelta(days=2)
     next_week = now + timedelta(days=7)
