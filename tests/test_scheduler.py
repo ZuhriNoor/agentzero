@@ -43,7 +43,7 @@ async def test_check_reminders(mock_broadcast, mock_list_events):
     assert "Reminder:" in notification
     assert "Quick standup" in notification
     
-    unique_id = f"Quick standup_{event_time.isoformat()}"
+    unique_id = f"event_Quick standup_{event_time.isoformat()}"
     assert unique_id in scheduler.reminders_sent
 
 @pytest.mark.asyncio
@@ -60,7 +60,7 @@ async def test_scheduler_ignores_already_sent_reminders(mock_broadcast, mock_lis
         }
     ]
     # Pretend we already sent it
-    unique_id = f"Quick standup_{event_time.isoformat()}"
+    unique_id = f"event_Quick standup_{event_time.isoformat()}"
     scheduler.reminders_sent[unique_id] = datetime.now().timestamp()
     
     await scheduler.check_reminders()

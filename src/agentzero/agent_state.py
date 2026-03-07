@@ -17,6 +17,7 @@ class AgentState(BaseModel):
     permissions: Dict[str, bool] = Field(default_factory=dict)
     response: Optional[str] = None
     step: Optional[str] = None  # Current node/state
+    retries: int = Field(default=0)  # Self-correction loop counter
 
     class Config:
         arbitrary_types_allowed = True

@@ -9,7 +9,10 @@ from agentzero.memory import AuditLog
 # Policy config — controls which actions are allowed
 POLICY = {
     "chat": {"allowed": True, "reason": "General conversation allowed"},
-    "add_task": {"allowed": True, "reason": "User productivity"},
+    "add_task": {"allowed": True, "reason": "Task creation allowed"},
+    "list_tasks": {"allowed": True, "reason": "Task listing allowed"},
+    "edit_task": {"allowed": True, "reason": "Task modification allowed"},
+    "complete_task": {"allowed": True, "reason": "Task completion allowed"},
     "add_event": {"allowed": True, "reason": "User scheduling allowed"},
     "list_events": {"allowed": True, "reason": "Calendar event listing allowed"},
     "plan_day": {"allowed": True, "reason": "Daily planning allowed"},

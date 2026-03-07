@@ -1,0 +1,90 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\USER\Documents\Projects\AgentZero\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\USER\Documents\Projects\AgentZero
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.6.4, asyncio-1.3.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 3 items
+
+tests/test_pipeline.py::test_full_pipeline_chat_intent PASSED
+tests/test_pipeline.py::test_full_pipeline_action_intent FAILED
+tests/test_pipeline.py::test_full_pipeline_permission_denied FAILED
+
+================================== FAILURES ===================================
+______________________ test_full_pipeline_action_intent _______________________
+
+compiled_graph = <langgraph.graph.state.CompiledStateGraph object at 0x000001CA7FC3D590>
+mock_generate_completion = <AsyncMock id='1969237849632'>
+mock_chat_completion = <AsyncMock id='1969237848960'>
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_action_intent(compiled_graph, mock_generate_completion, mock_chat_completion):
+        """
+        Simulate an action pipeline: intent router -> planner -> executor -> response composer.
+        """
+        # 1. Router classifies as 'add_task'
+        mock_generate_completion.side_effect = [
+            "add_task", # First call to generate_completion via router
+            '{"plan": [{"type": "add_task", "params": {"name": "buy groceries"}}]}' # Second call via planner
+        ]
+    
+        # 3. Response composer summarizes result
+        mock_chat_completion.return_value = "I added 'buy groceries' to your tasks."
+    
+        state = AgentState(user_input="Remind me to buy groceries", permissions={"add_task": True})
+    
+        result = await compiled_graph.ainvoke(state)
+    
+        assert result["intent"] == "add_task"
+>       assert len(result["plan"]) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests\test_pipeline.py:48: AssertionError
+____________________ test_full_pipeline_permission_denied _____________________
+
+compiled_graph = <langgraph.graph.state.CompiledStateGraph object at 0x000001CA7FC3DE50>
+mock_generate_completion = <AsyncMock id='1969238902832'>
+mock_chat_completion = <AsyncMock id='1969238904176'>
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_permission_denied(compiled_graph, mock_generate_completion, mock_chat_completion):
+        """
+        If permission is denied for a specific action (e.g. LLM hallucinates an unconfigured action),
+        the executor should append an error and the composer should report it.
+        """
+        # 1. Router classifies intent as 'add_task' (allowed by policy_enforcer)
+        # 2. Planner hallucinates an action that isn't pre-authorized
+        mock_generate_completion.side_effect = [
+            "add_task",
+            '{"plan": [{"type": "delete_database", "params": {}}]}'
+        ]
+    
+        # Mock fallback formatting
+        mock_chat_completion.return_value = "I cannot do that because I lack permission."
+    
+        state = AgentState(user_input="Delete everything")
+    
+        result = await compiled_graph.ainvoke(state)
+    
+        # The executor should have blocked 'delete_database'
+        error_result = next(r for r in result["tool_results"] if "error" in r)
+        assert "Permission denied for delete_database" in error_result["error"]
+>       assert result["response"] == "I cannot do that because I lack permission."
+E       AssertionError: assert 'An error occ...tact support.' == 'I cannot do ...k permission.'
+E         
+E         - I cannot do that because I lack permission.
+E         + An error occurred. The action was not completed. Please try again or contact support.
+
+tests\test_pipeline.py:81: AssertionError
+============================== warnings summary ===============================
+src\agentzero\agent_state.py:7
+  C:\Users\USER\Documents\Projects\AgentZero\src\agentzero\agent_state.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AgentState(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_pipeline.py::test_full_pipeline_action_intent - assert 0 == 1
+FAILED tests/test_pipeline.py::test_full_pipeline_permission_denied - Asserti...
+=================== 2 failed, 1 passed, 1 warning in 2.54s ====================

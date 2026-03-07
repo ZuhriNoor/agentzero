@@ -18,6 +18,11 @@ def _load_habits():
     data = mem.load()
     return data.get("habits", [])
 
+def _load_tasks():
+    mem = StructuredMemory("data/tasks.json")
+    data = mem.load()
+    return [t for t in data.get("tasks", []) if not t.get("completed")]
+
 
 def _format_events(events: list) -> str:
     if not events:
@@ -44,6 +49,17 @@ def _format_habits(habits: list) -> str:
         lines.append(f"- {detail}")
     return "\n".join(lines)
 
+def _format_tasks(tasks: list) -> str:
+    if not tasks:
+        return "No pending tasks."
+    lines = []
+    for t in tasks:
+        line = f"- {t['task']}"
+        if t.get('deadline'):
+            line += f" (Due: {t['deadline']})"
+        lines.append(line)
+    return "\n".join(lines)
+
 
 async def plan_day(date=None, **kwargs):
     """Compose a full day plan from real calendar events + habits."""
@@ -67,15 +83,22 @@ async def plan_day(date=None, **kwargs):
     habits = _load_habits()
     habits_text = _format_habits(habits)
 
-    # 3. Ask LLM to compose the plan with real data
+    # 3. Load tasks
+    tasks = _load_tasks()
+    tasks_text = _format_tasks(tasks)
+
+    # 4. Ask LLM to compose the plan with real data
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Ein, a helpful productivity AI. "
-                "Create a structured day plan using ONLY the events and habits provided below. "
-                "Do NOT invent or fabricate any events. "
-                "Suggest time slots for habits around the existing events. "
+                "You are Ein, a realistic and helpful daily scheduler. "
+                "Create a structured day plan using ONLY the events, habits, and tasks provided below. "
+                "IMPORTANT RULES: "
+                "1. Prioritize scheduling Calendar Events at their exact fixed times. "
+                "2. Fit Habits into their designated time of day. "
+                "3. Assign pending Tasks to empty blocks in the schedule. "
+                "4. Do NOT invent or fabricate any events, habits, or tasks. If there is free time, explicitly label it as 'Free Time'. "
                 "Be concise and friendly."
             ),
         },
@@ -85,6 +108,7 @@ async def plan_day(date=None, **kwargs):
                 f"Plan my day for {day_label}.\n\n"
                 f"Calendar Events:\n{events_text}\n\n"
                 f"Habits to include:\n{habits_text}\n\n"
+                f"Pending Tasks:\n{tasks_text}\n\n"
                 f"Current time: {now.strftime('%H:%M')}"
             ),
         },
@@ -116,16 +140,23 @@ async def plan_week(start_date=None, **kwargs):
     habits = _load_habits()
     habits_text = _format_habits(habits)
 
-    # 3. Ask LLM to compose the plan with real data
+    # 3. Load tasks
+    tasks = _load_tasks()
+    tasks_text = _format_tasks(tasks)
+
+    # 4. Ask LLM to compose the plan with real data
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Ein, a helpful productivity AI. "
-                "Create a structured week plan using ONLY the events and habits provided below. "
-                "Do NOT invent or fabricate any events. "
-                "Organize by day and suggest time slots for habits. "
-                "Be concise and friendly."
+                "You are Ein, a realistic and helpful weekly scheduler. "
+                "Create a structured week plan using ONLY the events, habits, and tasks provided below. "
+                "IMPORTANT RULES: "
+                "1. Prioritize scheduling Calendar Events at their exact fixed times. "
+                "2. Fit Habits into their designated time of day. "
+                "3. Spread pending Tasks across the week into empty blocks. "
+                "4. Do NOT invent or fabricate any events, habits, or tasks. If there is open space, leave it as 'Free Time'. "
+                "Organize by day. Be concise and friendly."
             ),
         },
         {
@@ -134,6 +165,7 @@ async def plan_week(start_date=None, **kwargs):
                 f"Plan my week: {week_label}.\n\n"
                 f"Calendar Events:\n{events_text}\n\n"
                 f"Habits to include:\n{habits_text}\n\n"
+                f"Pending Tasks:\n{tasks_text}\n\n"
                 f"Current time: {now.strftime('%H:%M')}"
             ),
         },

@@ -10,6 +10,7 @@ from agentzero.policy_enforcer import policy_enforcer
 from agentzero.context_builder import context_builder
 from agentzero.planner import planner
 from agentzero.executor import executor
+from agentzero.evaluator import evaluator
 from agentzero.memory_writer import memory_writer
 from agentzero.response_composer import response_composer
 from agentzero.error_handler import error_handler
@@ -40,6 +41,7 @@ def build_agentzero_graph():
     graph.add_node("context_builder", context_builder)
     graph.add_node("planner", planner)
     graph.add_node("executor", executor)
+    graph.add_node("evaluator", evaluator)
     graph.add_node("memory_writer", memory_writer)
     graph.add_node("response_composer", response_composer)
     graph.add_node("error_handler", error_handler)
@@ -69,7 +71,20 @@ def build_agentzero_graph():
         "error_handler": "error_handler",
     })
 
-    graph.add_conditional_edges("executor", _error_or("memory_writer"), {
+    graph.add_conditional_edges("executor", _error_or("evaluator"), {
+        "evaluator": "evaluator",
+        "error_handler": "error_handler",
+    })
+    
+    def route_evaluator(state: AgentState):
+        if state.error:
+            return "error_handler"
+        if state.step == "evaluator (retry loop)":
+            return "planner"
+        return "memory_writer"
+
+    graph.add_conditional_edges("evaluator", route_evaluator, {
+        "planner": "planner",
         "memory_writer": "memory_writer",
         "error_handler": "error_handler",
     })

@@ -72,9 +72,32 @@ class Scheduler:
         
         logger.debug(f"Found {len(events)} events for query {today_str} to {tomorrow_str}")
 
-        for event in events:
+        # Check pending tasks as well
+        from agentzero.memory import StructuredMemory
+        tasks_data = StructuredMemory("data/tasks.json").load()
+        pending_tasks = [t for t in tasks_data.get("tasks", []) if not t.get("completed", False) and t.get("deadline")]
+
+        # Combine items to check
+        items_to_check = []
+        for e in events:
+            items_to_check.append({
+                "type": "event",
+                "id": f"event_{e['name']}_{e['begin']}",
+                "name": e['name'],
+                "time_str": e['begin']
+            })
+            
+        for t in pending_tasks:
+            items_to_check.append({
+                "type": "task",
+                "id": f"task_{t['task']}_{t['deadline']}",
+                "name": t['task'],
+                "time_str": t['deadline']
+            })
+
+        for item in items_to_check:
             try:
-                evt_time_str = event['begin']
+                evt_time_str = item['time_str']
                 evt_time = dateutil_parser.parse(evt_time_str)
 
                 now_aware = datetime.now(tz.tzlocal())
@@ -85,16 +108,17 @@ class Scheduler:
                 else:
                     evt_time = evt_time.astimezone(tz.tzlocal())
                 
-                logger.debug(f"Examining '{event['name']}': {evt_time} vs Now: {now_aware}")
+                logger.debug(f"Examining {item['type']} '{item['name']}': {evt_time} vs Now: {now_aware}")
 
                 if now_aware < evt_time <= upcoming_window:
-                    unique_id = f"{event['name']}_{event['begin']}"
+                    unique_id = item['id']
                     
                     if unique_id not in self.reminders_sent:
                         time_diff = int((evt_time - now_aware).total_seconds() / 60)
-                        message = f"🔔 Reminder: '{event['name']}' starts in {time_diff} minutes."
+                        prefix = "📅 Event" if item['type'] == 'event' else "✅ Task"
+                        message = f"🔔 Reminder: {prefix} '{item['name']}' is due in {time_diff} minutes."
                         
-                        logger.info(f"Sending reminder: {message}")
+                        logger.info(f"Sending reminder for {item['type']} '{item['name']}' in {time_diff} mins")
                         await self.broadcast_func(message)
                         
                         self.reminders_sent[unique_id] = datetime.now().timestamp()
@@ -102,10 +126,10 @@ class Scheduler:
                     else:
                         logger.debug(f"Already sent reminder for {unique_id}")
                 else:
-                    logger.debug(f"Event not in window. Time diff: {(evt_time - now_aware).total_seconds() / 60:.0f} mins")
+                    logger.debug(f"Item not in window. Time diff: {(evt_time - now_aware).total_seconds() / 60:.0f} mins")
 
             except Exception as e:
-                logger.error(f"Error checking event {event.get('name')}: {e}", exc_info=True)
+                logger.error(f"Error checking {item.get('type')} {item.get('name')}: {e}", exc_info=True)
 
     def stop(self):
         self.running = False

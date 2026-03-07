@@ -20,6 +20,9 @@ from agentzero.llm_service import generate_completion
 ALL_INTENTS: Set[str] = {
     "chat",
     "add_task",
+    "list_tasks",
+    "edit_task",
+    "complete_task",
     "add_event",
     "list_events",
     "get_file",
@@ -38,6 +41,7 @@ ALL_INTENTS: Set[str] = {
 INTENT_BUCKETS = {
     "question": {
         "list_events",
+        "list_tasks",
         "list_habits",
         "query_note",
         "get_file",
@@ -46,6 +50,8 @@ INTENT_BUCKETS = {
     },
     "command": {
         "add_task",
+        "edit_task",
+        "complete_task",
         "add_event",
         "add_habit",
         "delete_habit",

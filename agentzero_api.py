@@ -313,7 +313,7 @@ async def voice_endpoint(file: UploadFile = File(...), _user: str = Depends(requ
 # 2. WebSocket Clients (your separate app)
 # ==========================================
 async def broadcast_notification(message: str):
-    logger.info(f"[BROADCAST] Notification: {message}")
+    logger.info(f"[BROADCAST] Sending notification to connected clients.")
 
     # Channel 1: WebSocket Broadcast (Your App)
     for client in connected_clients:
