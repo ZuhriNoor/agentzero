@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from typing import Set, List, Dict, Any
 from agentzero.graph import build_agentzero_graph
 from agentzero.scheduler import Scheduler
+from agentzero.session_store import SQLiteSessionStore
 import asyncio
 import shutil
 import uuid
@@ -69,16 +70,8 @@ MAX_PROCESSED_IDS = 10000
 processed_message_ids: Set[str] = set()
 processed_message_queue: deque = deque()
 
-# Short-term memory (STM) for conversational chat mapped by session_id
-# Format: { session_id: {"history": [...], "last_accessed": time.time()} }
-session_memory: Dict[str, Dict[str, Any]] = {}
-
-def cleanup_session_memory(max_age_seconds: int = 3600):
-    """Removes sessions that haven't been accessed in max_age_seconds."""
-    now = time.time()
-    expired = [sid for sid, data in session_memory.items() if now - data["last_accessed"] > max_age_seconds]
-    for sid in expired:
-        del session_memory[sid]
+# Memory stores
+session_store = SQLiteSessionStore("data/sessions.db")
 
 # WebSocket Connection Manager
 # This list tracks active connections from your separate app (e.g., React Native, Flutter, Web App)
@@ -356,7 +349,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
         # Create a heartbeat task to keep connection alive through Cloudflare
         async def heartbeat(ws):
             while True:
-                await asyncio.sleep(15) # Send ping every 15 seconds
+                await asyncio.sleep(4) # Send ping every 4 seconds
                 try:
                     await ws.send_text("ping")
                 except:
@@ -374,7 +367,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
         logger.info("Client disconnected normally.")
     except Exception as e:
         logger.error(f"WebSocket Error: {e}")
-        # traceback.print_exc()
+        import traceback
+        traceback.print_exc()
     finally:
         if 'heartbeat_task' in locals():
             heartbeat_task.cancel()
@@ -389,11 +383,11 @@ async def run_agent_pipeline(user_input: str, session_id: str = "default") -> st
     Returns the final response string.
     """
     try:
-        # Cleanup old sessions before accessing
-        cleanup_session_memory()
+        # Cleanup old sessions before accessing (default 1 hour)
+        session_store.cleanup()
         
         # Retrieve history for this session
-        session_data = session_memory.get(session_id, {"history": [], "last_accessed": time.time()})
+        session_data = session_store.get(session_id)
         history = session_data["history"]
         
         initial_state = {"user_input": user_input, "chat_history": history}
@@ -413,7 +407,7 @@ async def run_agent_pipeline(user_input: str, session_id: str = "default") -> st
         if len(history) > 10:
             history = history[-10:]
             
-        session_memory[session_id] = {"history": history, "last_accessed": time.time()}
+        session_store.set(session_id, history)
         
         return agent_response
     except Exception as e:
@@ -521,7 +515,7 @@ async def process_whatsapp_message(from_number: str, message: dict):
             print(f"Received WhatsApp message from {from_number}: {user_text}")
 
             # Run the Agent!
-            agent_response = await run_in_threadpool(run_agent_pipeline, user_text, from_number)
+            agent_response = await run_agent_pipeline(user_text, from_number)
 
             # Send response back to WhatsApp
             await send_whatsapp_message(from_number, agent_response)
@@ -548,7 +542,7 @@ async def process_whatsapp_message(from_number: str, message: dict):
                 else:
                     # 3. Run Agent with transcribed text
                     # Optional: specific prefix to let agent know it was voice? Nah.
-                    agent_response = await run_in_threadpool(run_agent_pipeline, transcribed_text, from_number)
+                    agent_response = await run_agent_pipeline(transcribed_text, from_number)
                     await send_whatsapp_message(from_number, agent_response)
                     
                 # Cleanup
