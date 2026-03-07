@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  agentzero-api:
+    build: .
+    container_name: agentzero_api
+    restart: always # Ideal for Azure App Service to ensure background tasks keep running
+    ports:
+      - "8000:8000"
+    volumes:
+      # Maps the host's 'data' directory to the container. 
+      # On Azure Web Apps, this will map to the persistent storage mount.
+      - ./data:/app/data
+    env_file:
+      - .env

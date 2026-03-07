@@ -1,0 +1,26 @@
+# Version control
+.git
+.gitignore
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Secrets (These MUST NOT be baked into the image, inject via Azure App Settings instead)
+.env
+
+# Data and logs (Prevent baking the developer's local state into the image)
+data/
+*.log
+*.sqlite
+*.db
+
+# Tests
+tests/
