@@ -61,8 +61,14 @@ async def executor(state: AgentState) -> AgentState:
             continue
 
         # Check permissions
-        if not state.permissions.get(action_type, False):
+        if action_type != "ask_user" and not state.permissions.get(action_type, False):
             results.append({"error": f"Permission denied for {action_type}"})
+            continue
+
+        # Handle Conversational Slot-Filling directly
+        if action_type == "ask_user":
+            question = params.get("question", "Could you provide more details?")
+            results.append({"chat": question})
             continue
 
         # Unified action dispatch (supports both sync and async actions)
