@@ -31,20 +31,26 @@ import uuid
 LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT,
-    datefmt=LOG_DATE_FORMAT,
-)
-
-# Add rotating file handler (persists logs to disk)
+import sys
 from logging.handlers import RotatingFileHandler
 os.makedirs("data", exist_ok=True)
+
+# File Handler
 file_handler = RotatingFileHandler(
     "data/agentzero.log", maxBytes=5 * 1024 * 1024, backupCount=3  # 5MB, keep 3 backups
 )
 file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
-logging.getLogger().addHandler(file_handler)
+
+# Console Handler (explicitly to sys.stdout to prevent Colorama recursion loop on stderr)
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+
+# Apply globally and clean previous bindings
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[console_handler, file_handler],
+    force=True
+)
 
 logger = logging.getLogger("agentzero.api")
 
