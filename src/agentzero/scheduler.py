@@ -38,6 +38,8 @@ class Scheduler:
 
     async def start(self, initial_delay=0):
         self.running = True
+        self._last_error_msg = None
+        self._consecutive_errors = 0
         logger.info(f"Scheduler started. Waiting {initial_delay}s before first check...")
         if initial_delay > 0:
             await asyncio.sleep(initial_delay)
@@ -46,8 +48,31 @@ class Scheduler:
             try:
                 self._prune_old_reminders()
                 await self.check_reminders()
+                # Reset error tracking on success
+                if self._consecutive_errors > 0:
+                    logger.info("Scheduler recovered after previous errors.")
+                self._consecutive_errors = 0
+                self._last_error_msg = None
+            except RecursionError:
+                # Fatal: do NOT log (logging itself may trigger the recursion).
+                # Just back off hard and retry later.
+                self._consecutive_errors += 1
+                backoff = min(300, 60 * (2 ** self._consecutive_errors))  # max 5 min
+                await asyncio.sleep(backoff)
+                continue
             except Exception as e:
-                logger.error(f"Error in scheduler loop: {e}")
+                err_msg = str(e)
+                self._consecutive_errors += 1
+                # Only log if it's a NEW error (not the same one repeating)
+                if err_msg != self._last_error_msg:
+                    logger.error(f"Error in scheduler loop: {e}")
+                    self._last_error_msg = err_msg
+                elif self._consecutive_errors == 5:
+                    logger.error(f"Scheduler error repeating (suppressing further logs): {e}")
+                # Exponential backoff: 60s, 120s, 240s... max 5 min
+                backoff = min(300, 60 * (2 ** min(self._consecutive_errors - 1, 3)))
+                await asyncio.sleep(backoff)
+                continue
             await asyncio.sleep(60)
 
     def _prune_old_reminders(self, max_age_hours=24):

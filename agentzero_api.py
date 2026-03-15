@@ -27,6 +27,16 @@ import asyncio
 import shutil
 import uuid
 
+# Neutralize colorama's stream wrapping to prevent RecursionError in containers.
+# Colorama wraps sys.stdout/stderr with AnsiToWin32 converters. On Linux Docker
+# containers, this creates infinite recursion when logging writes to the wrapped
+# stream. We force-disable the wrapping before any logging handler is created.
+try:
+    import colorama
+    colorama.deinit()  # Undo any prior init()
+except Exception:
+    pass
+
 # Structured logging — console + file
 LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
