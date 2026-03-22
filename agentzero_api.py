@@ -182,6 +182,29 @@ async def health_check():
     }
 
 # ==========================================
+# OBSERVABILITY DASHBOARD (auth-protected)
+# ==========================================
+from fastapi.responses import FileResponse
+from agentzero.metrics import MetricsCollector
+
+@app.get("/admin/dashboard")
+async def admin_dashboard():
+    """Serve the observability dashboard HTML."""
+    return FileResponse("static/dashboard.html", media_type="text/html")
+
+@app.get("/admin/metrics")
+async def admin_metrics(window: int = 3600):
+    """JSON metrics summary for the given time window (seconds). Public — no PII."""
+    collector = MetricsCollector()
+    return collector.get_summary(window_seconds=window)
+
+@app.get("/admin/requests")
+async def admin_requests(limit: int = 50):
+    """Recent request traces (truncated user input, no PII). Public."""
+    collector = MetricsCollector()
+    return collector.get_recent_requests(limit=limit)
+
+# ==========================================
 # AUTHENTICATION
 # ==========================================
 
@@ -397,6 +420,10 @@ async def run_agent_pipeline(user_input: str, session_id: str = "default") -> st
     Maintains a sliding window of the last 5 chat interactions.
     Returns the final response string.
     """
+    request_id = str(uuid.uuid4())
+    collector = MetricsCollector()
+    collector.start_request(request_id, user_input)
+    
     try:
         # Cleanup old sessions before accessing (default 1 hour)
         session_store.cleanup()
@@ -412,8 +439,14 @@ async def run_agent_pipeline(user_input: str, session_id: str = "default") -> st
         # Helper to extract response (handles both Pydantic object and dict)
         if isinstance(final_state, dict):
             agent_response = final_state.get("response", "[No response generated]")
+            domain = final_state.get("intent", "unknown")
+            had_error = bool(final_state.get("error"))
         else:
             agent_response = getattr(final_state, "response", "[No response generated]")
+            domain = getattr(final_state, "intent", "unknown")
+            had_error = bool(getattr(final_state, "error", None))
+            
+        collector.end_request(request_id, had_error=had_error, domain=domain or "unknown")
             
         # Update session memory (keep last 5 interactions = 10 messages)
         history.append({"role": "user", "content": user_input})
@@ -426,6 +459,7 @@ async def run_agent_pipeline(user_input: str, session_id: str = "default") -> st
         
         return agent_response
     except Exception as e:
+        collector.end_request(request_id, had_error=True)
         return f"[Agent Execution Error: {str(e)}]"
 
 class ChatRequest(BaseModel):

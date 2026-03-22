@@ -23,12 +23,17 @@ def _get_file_lock(path: str) -> threading.Lock:
         return _file_locks[path]
 
 
-# Node-level trace logging
+# Node-level trace logging + metrics instrumentation
 LOG_PIPE_PATH = 'data/node_trace.log'
 _trace_lock = threading.Lock()
+_node_entry_times: Dict[str, float] = {}  # node_name -> perf_counter at entry
+_entry_times_lock = threading.Lock()
 
 
 def log_node(step, state):
+    import time as _time
+    from agentzero.metrics import MetricsCollector
+    
     entry = {
         'step': step,
         'user_input': getattr(state, 'user_input', None),
@@ -42,6 +47,26 @@ def log_node(step, state):
     with _trace_lock:
         with open(LOG_PIPE_PATH, 'a') as f:
             f.write(json.dumps(entry) + '\n')
+    
+    # Metrics instrumentation
+    try:
+        collector = MetricsCollector()
+        node_name = step.split(':')[0]  # e.g. "supervisor" from "supervisor:entry"
+        phase = step.split(':')[1] if ':' in step else ''
+        
+        if phase == 'entry':
+            with _entry_times_lock:
+                _node_entry_times[node_name] = _time.perf_counter()
+        elif phase in ('exit', 'error'):
+            with _entry_times_lock:
+                start = _node_entry_times.pop(node_name, None)
+            if start is not None:
+                duration_ms = (_time.perf_counter() - start) * 1000
+                had_error = phase == 'error' or bool(getattr(state, 'error', None))
+                domain = getattr(state, 'intent', None) or 'unknown'
+                collector.record(node_name, duration_ms, had_error=had_error, domain=domain)
+    except Exception:
+        pass  # Never let metrics crash the pipeline
 
 
 class ShortTermMemory:

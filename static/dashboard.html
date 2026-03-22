@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentZero — Observability Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface-2: #242736;
+            --border: #2d3148;
+            --text: #e1e4ed;
+            --text-dim: #8b8fa3;
+            --accent: #6c5ce7;
+            --accent-glow: rgba(108, 92, 231, 0.3);
+            --green: #00d68f;
+            --red: #ff6b6b;
+            --orange: #ffa94d;
+            --blue: #74b9ff;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 20px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), var(--blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header .status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        .header .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            padding: 24px 32px;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+
+        .card .value {
+            font-size: 36px;
+            font-weight: 700;
+        }
+
+        .card .sub {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        .chart-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 0 32px 16px;
+        }
+
+        .chart-container h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        .chart-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            margin: 0 32px 16px;
+        }
+
+        .chart-row .chart-container {
+            margin: 0;
+        }
+
+        canvas { max-height: 280px; }
+
+        .table-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin: 0 32px 32px;
+            overflow: hidden;
+        }
+
+        .table-container h3 {
+            font-size: 14px;
+            font-weight: 600;
+            padding: 16px 20px 0;
+            color: var(--text);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        thead th {
+            text-align: left;
+            padding: 12px 16px;
+            color: var(--text-dim);
+            font-weight: 500;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tbody td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tbody tr:hover { background: var(--surface-2); }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-calendar { background: rgba(116,185,255,0.15); color: var(--blue); }
+        .badge-task { background: rgba(0,214,143,0.15); color: var(--green); }
+        .badge-knowledge { background: rgba(255,169,77,0.15); color: var(--orange); }
+        .badge-chat { background: rgba(108,92,231,0.15); color: var(--accent); }
+        .badge-error { background: rgba(255,107,107,0.15); color: var(--red); }
+        .badge-ok { background: rgba(0,214,143,0.15); color: var(--green); }
+
+        .node-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+            margin: 0 32px 16px;
+        }
+
+        .node-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .node-card .name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .node-card .stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .node-card .stat {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .node-card .stat strong {
+            color: var(--text);
+            font-size: 16px;
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .chart-row { grid-template-columns: 1fr; }
+            .grid { grid-template-columns: 1fr 1fr; }
+            .header { padding: 16px; }
+            .grid, .chart-container, .table-container, .node-grid { margin-left: 16px; margin-right: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>⚡ AgentZero Observability</h1>
+        <div class="status">
+            <div class="dot"></div>
+            <span id="uptime">Loading...</span>
+            <span>• Auto-refresh 30s</span>
+        </div>
+    </div>
+
+    <div class="grid" id="kpis"></div>
+
+    <h3 style="padding: 0 32px; margin-bottom: 8px; font-size: 14px; color: #8b8fa3; text-transform: uppercase; letter-spacing: 1px;">Node Performance</h3>
+    <div class="node-grid" id="nodeGrid"></div>
+
+    <div class="chart-row">
+        <div class="chart-container">
+            <h3>Request Throughput (per minute)</h3>
+            <canvas id="throughputChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h3>Domain Distribution</h3>
+            <canvas id="domainChart"></canvas>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h3>Node Latency (avg ms)</h3>
+        <canvas id="latencyChart"></canvas>
+    </div>
+
+    <div class="table-container">
+        <h3 style="margin-bottom: 12px;">Recent Requests</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Input</th>
+                    <th>Domain</th>
+                    <th>Latency</th>
+                    <th>Status</th>
+                    <th>Nodes</th>
+                </tr>
+            </thead>
+            <tbody id="requestsTable"></tbody>
+        </table>
+    </div>
+
+    <script>
+        let latencyChart, domainChart, throughputChart;
+        const COLORS = {
+            calendar: '#74b9ff', task: '#00d68f', knowledge: '#ffa94d',
+            chat: '#6c5ce7', unknown: '#8b8fa3'
+        };
+
+        function formatUptime(s) {
+            const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
+                  m = Math.floor((s % 3600) / 60);
+            return `${d}d ${h}h ${m}m`;
+        }
+
+        function formatTime(ts) {
+            return new Date(ts * 1000).toLocaleTimeString();
+        }
+
+        function domainBadge(d) {
+            const cls = COLORS[d] ? `badge-${d}` : 'badge-chat';
+            return `<span class="badge ${cls}">${d}</span>`;
+        }
+
+        function renderKPIs(data) {
+            const el = document.getElementById('kpis');
+            const totalReqs = Object.values(data.nodes).reduce((s, n) => s + n.count, 0);
+            const avgLatency = totalReqs > 0 ? 
+                Object.values(data.nodes).reduce((s, n) => s + n.avg_ms * n.count, 0) / totalReqs : 0;
+            
+            el.innerHTML = `
+                <div class="card">
+                    <h3>Total Events</h3>
+                    <div class="value">${totalReqs.toLocaleString()}</div>
+                    <div class="sub">Last ${Math.round(data.window_seconds/60)} min</div>
+                </div>
+                <div class="card">
+                    <h3>Avg Latency</h3>
+                    <div class="value" style="color:${avgLatency > 5000 ? 'var(--red)' : 'var(--green)'}">${avgLatency.toFixed(0)}<span style="font-size:16px">ms</span></div>
+                    <div class="sub">All nodes combined</div>
+                </div>
+                <div class="card">
+                    <h3>Errors</h3>
+                    <div class="value" style="color:${data.total_errors > 0 ? 'var(--red)' : 'var(--green)'}">${data.total_errors}</div>
+                    <div class="sub">${totalReqs > 0 ? ((data.total_errors/totalReqs)*100).toFixed(1) : 0}% rate</div>
+                </div>
+                <div class="card">
+                    <h3>Uptime</h3>
+                    <div class="value" style="font-size:28px">${formatUptime(data.uptime_seconds)}</div>
+                    <div class="sub">Since last restart</div>
+                </div>
+            `;
+            document.getElementById('uptime').textContent = `Uptime: ${formatUptime(data.uptime_seconds)}`;
+        }
+
+        function renderNodeGrid(nodes) {
+            const el = document.getElementById('nodeGrid');
+            const order = ['supervisor','policy_enforcer','context_builder','calendar_agent','task_agent','knowledge_agent','executor','evaluator','memory_writer','response_composer','error_handler'];
+            const sorted = order.filter(n => nodes[n]).concat(Object.keys(nodes).filter(n => !order.includes(n)));
+            
+            el.innerHTML = sorted.map(name => {
+                const n = nodes[name];
+                return `<div class="node-card">
+                    <div class="name">${name.replace(/_/g, ' ')}</div>
+                    <div class="stats">
+                        <div class="stat"><strong>${n.avg_ms.toFixed(0)}ms</strong>avg</div>
+                        <div class="stat"><strong>${n.p95_ms.toFixed(0)}ms</strong>p95</div>
+                        <div class="stat"><strong>${n.count}</strong>calls</div>
+                        <div class="stat"><strong style="color:${n.errors>0?'var(--red)':'var(--green)'}">${n.errors}</strong>errors</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderLatencyChart(nodes) {
+            const labels = Object.keys(nodes);
+            const avgData = labels.map(k => nodes[k].avg_ms);
+            const p95Data = labels.map(k => nodes[k].p95_ms);
+
+            if (latencyChart) latencyChart.destroy();
+            latencyChart = new Chart(document.getElementById('latencyChart'), {
+                type: 'bar',
+                data: {
+                    labels: labels.map(l => l.replace(/_/g, ' ')),
+                    datasets: [
+                        { label: 'Avg (ms)', data: avgData, backgroundColor: 'rgba(108,92,231,0.7)', borderRadius: 4 },
+                        { label: 'P95 (ms)', data: p95Data, backgroundColor: 'rgba(116,185,255,0.5)', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { labels: { color: '#8b8fa3' } } },
+                    scales: {
+                        x: { ticks: { color: '#8b8fa3', font: { size: 10 } }, grid: { color: '#2d3148' } },
+                        y: { ticks: { color: '#8b8fa3' }, grid: { color: '#2d3148' }, title: { display: true, text: 'ms', color: '#8b8fa3' } }
+                    }
+                }
+            });
+        }
+
+        function renderDomainChart(domains) {
+            const labels = Object.keys(domains);
+            const data = Object.values(domains);
+
+            if (domainChart) domainChart.destroy();
+            domainChart = new Chart(document.getElementById('domainChart'), {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{ data, backgroundColor: labels.map(l => COLORS[l] || '#8b8fa3'), borderWidth: 0 }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '65%',
+                    plugins: { legend: { position: 'bottom', labels: { color: '#8b8fa3', padding: 12 } } }
+                }
+            });
+        }
+
+        function renderThroughputChart(timeline) {
+            const labels = Object.keys(timeline).map(ts => formatTime(parseInt(ts)));
+            const data = Object.values(timeline);
+
+            if (throughputChart) throughputChart.destroy();
+            throughputChart = new Chart(document.getElementById('throughputChart'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Requests/min',
+                        data,
+                        borderColor: '#6c5ce7',
+                        backgroundColor: 'rgba(108,92,231,0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#8b8fa3', maxTicksLimit: 10 }, grid: { color: '#2d3148' } },
+                        y: { ticks: { color: '#8b8fa3' }, grid: { color: '#2d3148' }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        function renderRequestsTable(requests) {
+            const el = document.getElementById('requestsTable');
+            if (!requests || requests.length === 0) {
+                el.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:24px">No requests recorded yet</td></tr>';
+                return;
+            }
+            el.innerHTML = requests.slice(0, 30).map(r => `
+                <tr>
+                    <td style="white-space:nowrap">${r.end_time ? formatTime(r.end_time) : '—'}</td>
+                    <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.user_input||'').replace(/"/g,'&quot;')}">${r.user_input || '—'}</td>
+                    <td>${domainBadge(r.domain || 'unknown')}</td>
+                    <td>${r.total_ms ? r.total_ms.toFixed(0) + 'ms' : '—'}</td>
+                    <td><span class="badge ${r.error ? 'badge-error' : 'badge-ok'}">${r.error ? 'Error' : 'OK'}</span></td>
+                    <td style="color:var(--text-dim)">${(r.nodes || []).map(n => n.node).join(' → ')}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function fetchAndRender() {
+            try {
+                const token = new URLSearchParams(window.location.search).get('token') || '';
+                const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+                
+                const [metricsRes, requestsRes] = await Promise.all([
+                    fetch('/admin/metrics', { headers }),
+                    fetch('/admin/requests', { headers })
+                ]);
+                
+                const metrics = await metricsRes.json();
+                const requests = await requestsRes.json();
+                
+                renderKPIs(metrics);
+                renderNodeGrid(metrics.nodes || {});
+                renderLatencyChart(metrics.nodes || {});
+                renderDomainChart(metrics.domains || {});
+                renderThroughputChart(metrics.throughput_timeline || {});
+                renderRequestsTable(requests);
+            } catch (err) {
+                console.error('Failed to fetch metrics:', err);
+            }
+        }
+
+        fetchAndRender();
+        setInterval(fetchAndRender, 30000);
+    </script>
+</body>
+</html>
