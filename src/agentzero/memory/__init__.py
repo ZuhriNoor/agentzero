@@ -123,20 +123,24 @@ class StructuredMemory:
                 json.dump({}, f)
 
     def load(self) -> Dict[str, Any]:
+        from agentzero.encryption import decrypt_data
         with self._lock:
             try:
                 with open(self.file_path, 'r') as f:
                     content = f.read().strip()
                     if not content:
                         return {}
+                    content = decrypt_data(content)
                     return json.loads(content)
             except (json.JSONDecodeError, FileNotFoundError):
                 return {}
 
     def save(self, data: Dict[str, Any]):
+        from agentzero.encryption import encrypt_data
         with self._lock:
+            plaintext = json.dumps(data, indent=2)
             with open(self.file_path, 'w') as f:
-                json.dump(data, f, indent=2)
+                f.write(encrypt_data(plaintext))
 
 
 class AuditLog:
@@ -145,13 +149,25 @@ class AuditLog:
         self._lock = _get_file_lock(log_path)
 
     def append(self, entry: Dict[str, Any]):
+        from agentzero.encryption import encrypt_data
         with self._lock:
             with open(self.log_path, 'a') as f:
-                f.write(json.dumps(entry) + '\n')
+                line = json.dumps(entry)
+                f.write(encrypt_data(line) + '\n')
 
     def read_all(self) -> List[Dict[str, Any]]:
+        from agentzero.encryption import decrypt_data
         with self._lock:
             if not os.path.exists(self.log_path):
                 return []
+            entries = []
             with open(self.log_path, 'r') as f:
-                return [json.loads(line) for line in f if line.strip()]
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(decrypt_data(line)))
+                    except json.JSONDecodeError:
+                        continue
+            return entries

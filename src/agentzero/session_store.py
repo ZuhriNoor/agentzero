@@ -74,6 +74,9 @@ class SQLiteSessionStore(SessionStore):
                 
                 if row:
                     history_json = row["history"]
+                    # Decrypt if encryption is enabled
+                    from agentzero.encryption import decrypt_data
+                    history_json = decrypt_data(history_json)
                     try:
                         history = json.loads(history_json)
                     except json.JSONDecodeError:
@@ -97,6 +100,9 @@ class SQLiteSessionStore(SessionStore):
         try:
             now = time.time()
             history_json = json.dumps(history)
+            # Encrypt if encryption is enabled
+            from agentzero.encryption import encrypt_data
+            history_json = encrypt_data(history_json)
             
             with self._get_connection() as conn:
                 conn.execute(

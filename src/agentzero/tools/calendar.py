@@ -16,9 +16,11 @@ class LocalCalendarTool:
                 f.write('BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//AgentZero//EN\nEND:VCALENDAR\n')
 
     def _load_calendar(self):
+        from agentzero.encryption import decrypt_data
         try:
             with open(self.path, 'r') as f:
                 content = f.read()
+                content = decrypt_data(content)
                 try:
                     return Calendar(content)
                 except Exception as e:
@@ -37,8 +39,10 @@ class LocalCalendarTool:
             return Calendar(empty_ical)
 
     def _save_calendar(self, cal):
+        from agentzero.encryption import encrypt_data
+        content = ''.join(cal.serialize_iter())
         with open(self.path, 'w') as f:
-            f.writelines(cal.serialize_iter())
+            f.write(encrypt_data(content))
 
     def add_event(self, name, begin, end=None, description=None, recurrence=None, tags=None):
         cal = self._load_calendar()
